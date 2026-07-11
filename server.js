@@ -8,6 +8,7 @@ const deepseek = require('./lib/deepseek');
 const store = require('./lib/store');
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
 const MINUTE_MS = 60 * 1000;
@@ -30,6 +31,11 @@ const AUTO_REWRITE_SOURCE_IDS = new Set(String(process.env.AUTO_REWRITE_SOURCE_I
 const SESSION_COOKIE = 'qm_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const INDEX_PATH = path.join(__dirname, 'public', 'index.html');
+const DOMPURIFY_PATH = require.resolve('dompurify/dist/purify.min.js');
+const DOMPURIFY_VERSION = JSON.parse(fs.readFileSync(
+  path.join(path.dirname(require.resolve('dompurify')), '..', 'package.json'),
+  'utf8',
+)).version;
 const REFRESH_WORKER_PATH = path.join(__dirname, 'scripts', 'refresh-worker.js');
 const DEFAULT_TITLE = 'QMReader · RSS 阅读器';
 const DEFAULT_DESCRIPTION = '围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。';
@@ -86,7 +92,60 @@ let autoRewriteRunning = false;
 let autoRewriteLast = null;
 const sourceInteractionRefreshAt = new Map();
 const faviconCache = new Map();
+const faviconInFlight = new Map();
 const FAVICON_MAX_BYTES = 256 * 1024;
+const FAVICON_CACHE_MAX_ENTRIES = 512;
+const FAVICON_TOTAL_TIMEOUT_MS = 6000;
+const FAVICON_MAX_INFLIGHT = 64;
+const RATE_LIMIT_MAX_BUCKETS = 2048;
+
+function createRateLimiter({ windowMs, max, message, key: keyForRequest = null }) {
+  const buckets = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = String(
+      typeof keyForRequest === 'function'
+        ? keyForRequest(req)
+        : (req.ip || req.socket.remoteAddress || 'unknown')
+    );
+    let bucket = buckets.get(key);
+    if (!bucket || now - bucket.startedAt >= windowMs) {
+      if (!bucket && buckets.size >= RATE_LIMIT_MAX_BUCKETS) {
+        buckets.delete(buckets.keys().next().value);
+      }
+      bucket = { startedAt: now, count: 0 };
+      buckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    if (bucket.count <= max) return next();
+    const retryAfter = Math.max(1, Math.ceil((bucket.startedAt + windowMs - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfter));
+    return res.status(429).json({ error: message || '请求过于频繁，请稍后再试' });
+  };
+}
+
+const submitLinkRateLimit = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  message: '每小时最多收录 6 个链接，请稍后再试',
+  key: req => `user:${req.user && req.user.id || 'anonymous'}`,
+});
+const submitLinkDailyRateLimit = createRateLimiter({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 20,
+  message: '每天最多收录 20 个链接，请明天再试',
+  key: req => `user:${req.user && req.user.id || 'anonymous'}`,
+});
+const originalFetchRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  message: '原文抓取过于频繁，请稍后再试',
+});
+const faviconRateLimit = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 240,
+  message: '图标请求过于频繁，请稍后再试',
+});
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
@@ -113,12 +172,8 @@ function normalizeFaviconTarget(value) {
   }
 }
 
-function fallbackFaviconSvg(target = '') {
-  const host = (() => {
-    try { return new URL(target).hostname; } catch { return ''; }
-  })();
-  const letter = (host.replace(/^www\./, '').trim()[0] || 'Q').toUpperCase();
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#f1f1ef"/><text x="32" y="39" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="28" font-weight="700" fill="#71716d">${escapeHtml(letter)}</text></svg>`;
+function fallbackFaviconPng() {
+  return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 }
 
 function faviconCandidates(target, size) {
@@ -126,32 +181,57 @@ function faviconCandidates(target, size) {
   return [
     `https://www.google.com/s2/favicons?domain_url=${encoded}&sz=${size}`,
     `${target}/favicon.ico`,
-    `${target}/favicon.svg`,
     `${target}/apple-touch-icon.png`,
     `${target}/apple-touch-icon-precomposed.png`,
   ];
 }
 
-async function fetchFaviconCandidate(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4500);
+async function fetchFaviconCandidate(url, deadline) {
   try {
-    const response = await fetch(url, {
-      redirect: 'follow',
+    const result = await fetcher.fetchPublicBuffer(url, {
+      deadline,
+      maxBytes: FAVICON_MAX_BYTES,
+      maxRedirects: 4,
       headers: { 'User-Agent': 'QMReader favicon proxy/1.0' },
-      signal: controller.signal,
     });
-    if (!response.ok) return null;
-    const type = String(response.headers.get('content-type') || '').toLowerCase();
-    if (!type.includes('image/') && !type.includes('octet-stream')) return null;
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (!buffer.length || buffer.length > FAVICON_MAX_BYTES) return null;
-    return { buffer, type: type.split(';')[0] || 'image/png' };
+    if (result.status < 200 || result.status >= 300) return null;
+    const type = fetcher.safeRasterMimeType(result.buffer);
+    return type ? { buffer: result.buffer, type } : null;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
+}
+
+function cacheFavicon(cacheKey, value) {
+  faviconCache.delete(cacheKey);
+  faviconCache.set(cacheKey, value);
+  while (faviconCache.size > FAVICON_CACHE_MAX_ENTRIES) {
+    faviconCache.delete(faviconCache.keys().next().value);
+  }
+}
+
+function sendFavicon(res, value) {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Content-Security-Policy', 'sandbox');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  return res.type(value.type).send(value.buffer);
+}
+
+async function loadFavicon(target, size) {
+  const fallback = { buffer: fallbackFaviconPng(), type: 'image/png' };
+  const deadline = Date.now() + FAVICON_TOTAL_TIMEOUT_MS;
+  let safeTarget;
+  try {
+    safeTarget = new URL(await fetcher.assertPublicHttpUrl(target, { deadline })).origin;
+  } catch {
+    return fallback;
+  }
+  for (const url of faviconCandidates(safeTarget, size)) {
+    if (Date.now() >= deadline) break;
+    const result = await fetchFaviconCandidate(url, deadline);
+    if (result) return result;
+  }
+  return fallback;
 }
 
 function jsonLdScript(value) {
@@ -1576,8 +1656,9 @@ function renderSitemap(req) {
 function renderIndex(req, entry = null) {
   const html = fs.readFileSync(INDEX_PATH, 'utf8');
   const { title, tags } = socialMetaTags(req, entry);
-  const umami = umamiScriptTag();
+  const umami = umamiConfigTag(req);
   return html
+    .replace(/src="\/purify\.min\.js\?v=[^"]+"/, `src="/purify.min.js?v=${escapeHtml(DOMPURIFY_VERSION)}"`)
     .replace(/<link rel="alternate" type="application\/rss\+xml" title="[^"]*" href="[^"]*" \/>/, rssAlternateTag(req))
     .replace(/<title>.*?<\/title>/, `<title>${escapeHtml(title)}</title>`)
     .replace('</head>', `  ${tags}${umami ? `\n  ${umami}` : ''}\n</head>`);
@@ -1633,7 +1714,7 @@ function renderLlmsTxt(req) {
   ].join('\n');
 }
 
-function umamiScriptTag() {
+function umamiConfigTag(req) {
   if (!UMAMI_WEBSITE_ID || !UMAMI_SRC) return '';
   if (!/^[0-9a-f-]{36}$/i.test(UMAMI_WEBSITE_ID)) return '';
   let src;
@@ -1643,8 +1724,19 @@ function umamiScriptTag() {
     return '';
   }
   if (!/^https:\/\//i.test(src)) return '';
-  return `<script defer src="${escapeHtml(src)}" data-website-id="${escapeHtml(UMAMI_WEBSITE_ID)}" data-domains="rss.qiaomu.ai"></script>`;
+  let domain = 'rss.qiaomu.ai';
+  try { domain = new URL(publicUrl(req, '/')).hostname || domain; } catch { /* use production default */ }
+  return `<meta name="qmreader-analytics" data-src="${escapeHtml(src)}" data-website-id="${escapeHtml(UMAMI_WEBSITE_ID)}" data-domains="${escapeHtml(domain)}" />`;
 }
+
+app.get('/purify.min.js', (req, res) => {
+  const versioned = String(req.query.v || '') === DOMPURIFY_VERSION;
+  res.setHeader('Cache-Control', versioned
+    ? 'public, max-age=31536000, immutable'
+    : 'public, max-age=0, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.type('application/javascript').sendFile(DOMPURIFY_PATH);
+});
 
 app.get('/', (req, res) => {
   const entryId = String(req.query.entry || '').trim();
@@ -1697,32 +1789,36 @@ app.get('/favicon.ico', (req, res) => {
   res.redirect(302, '/favicon.svg');
 });
 
-app.get('/favicons', async (req, res) => {
+app.get('/favicons', faviconRateLimit, async (req, res) => {
   const target = normalizeFaviconTarget(req.query.domain_url);
   const size = Math.max(16, Math.min(parseInt(req.query.sz || '64', 10) || 64, 128));
+  const fallback = { buffer: fallbackFaviconPng(), type: 'image/png' };
   if (!target) {
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.type('image/svg+xml').send(fallbackFaviconSvg(''));
+    return sendFavicon(res, fallback);
   }
   const cacheKey = `${target}:${size}`;
   const cached = faviconCache.get(cacheKey);
   if (cached && Date.now() - cached.at < 1000 * 60 * 60 * 24) {
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.type(cached.type).send(cached.buffer);
-    return;
+    cacheFavicon(cacheKey, cached);
+    return sendFavicon(res, cached);
   }
-  for (const url of faviconCandidates(target, size)) {
-    const result = await fetchFaviconCandidate(url);
-    if (!result) continue;
-    faviconCache.set(cacheKey, { ...result, at: Date.now() });
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.type(result.type).send(result.buffer);
-    return;
+  let task = faviconInFlight.get(cacheKey);
+  if (!task) {
+    if (faviconInFlight.size >= FAVICON_MAX_INFLIGHT) return sendFavicon(res, fallback);
+    task = loadFavicon(target, size)
+      .then(result => {
+        const value = { ...result, at: Date.now() };
+        cacheFavicon(cacheKey, value);
+        return value;
+      })
+      .finally(() => faviconInFlight.delete(cacheKey));
+    faviconInFlight.set(cacheKey, task);
   }
-  const svg = Buffer.from(fallbackFaviconSvg(target));
-  faviconCache.set(cacheKey, { buffer: svg, type: 'image/svg+xml', at: Date.now() });
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.type('image/svg+xml').send(svg);
+  try {
+    return sendFavicon(res, await task);
+  } catch {
+    return sendFavicon(res, fallback);
+  }
 });
 
 app.get('/sitemap.xml', (req, res) => {
@@ -1778,7 +1874,16 @@ app.get(['/me', '/dashboard', '/admin'], (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, file) {
-    if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    if (file.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (/\.(?:css|js)$/.test(file)) {
+      const versioned = /(?:\?|&)v=[^&]+/.test(String(res.req && res.req.originalUrl || ''));
+      res.setHeader('Cache-Control', versioned
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=0, must-revalidate');
+    } else if (/\.(?:svg|png|jpe?g|gif|webp|avif|ico|woff2?)$/.test(file)) {
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+    }
   },
 }));
 
@@ -1911,6 +2016,12 @@ async function prepareEntryForAiAsset(entry, reason = 'AI asset', { productHuntO
           officialSiteFetched: true,
         };
       }
+      return {
+        entry,
+        fetched: false,
+        officialSiteFetched: false,
+        error: 'Product Hunt 官网正文不足，未使用 RSS 摘要替代',
+      };
     } catch (error) {
       console.warn(`${reason}: Product Hunt official-site context skipped for ${entry.id}:`, error.message || error);
       return {
@@ -1946,7 +2057,7 @@ function translationResponse(entry, viewer = null, assetId = '') {
     : store.getTranslation(entry.id);
   if (translation && exactAssetId && translation.entryId !== entry.id) return null;
   if (!translation) return null;
-  const contentHash = store.hashText((entry.title || '') + '\n' + (entry.content || entry.summary || ''));
+  const contentHash = deepseek.translationInputHash(entry);
   const reaction = store.getEntryAssetReaction(entry.id, 'translation', viewer, exactAssetId);
   return {
     ...translation,
@@ -1965,7 +2076,7 @@ function rewriteResponse(entry, viewer = null, assetId = '') {
   const contentHash = deepseek.rewriteContentHash(entry);
   const reaction = store.getEntryAssetReaction(entry.id, 'rewrite', viewer, exactAssetId);
   const stale = entry && entry.sourceId === 'producthunt'
-    ? false
+    ? !/^ph-official-v2:[a-f0-9]+$/i.test(String(rewrite.contentHash || ''))
     : Boolean(rewrite.contentHash && rewrite.contentHash !== contentHash);
   return {
     ...rewrite,
@@ -1977,7 +2088,7 @@ function rewriteResponse(entry, viewer = null, assetId = '') {
 async function translateMissingTitles(limit = TITLE_TRANSLATION_LIMIT) {
   if (!deepseek.getConfig().configured) return 0;
   const entries = fetcher.getEntries({ limit: 1000 })
-    .filter(entry => deepseek.isLikelyEnglish(entry.title) && !entry.titleZh)
+    .filter(entry => deepseek.needsTitleTranslation(entry.title) && !entry.titleZh)
     .slice(0, limit);
   let translated = 0;
   for (let i = 0; i < entries.length; i += 20) {
@@ -1988,7 +2099,7 @@ async function translateMissingTitles(limit = TITLE_TRANSLATION_LIMIT) {
 }
 
 async function translateSubmittedTitle(entry) {
-  if (!entry || !entry.id || !deepseek.getConfig().configured || !deepseek.isLikelyEnglish(entry.title)) return null;
+  if (!entry || !entry.id || !deepseek.getConfig().configured || !deepseek.needsTitleTranslation(entry.title)) return null;
   try {
     const result = await deepseek.translateTitleBatch([entry], { author: 'system' });
     return result.translations && result.translations[0] ? result.translations[0] : null;
@@ -2210,7 +2321,7 @@ function startFetchJob(job = {}) {
 
   const worker = fork(REFRESH_WORKER_PATH, [], {
     cwd: __dirname,
-    env: process.env,
+    env: { ...process.env, QMREADER_WORKER_KIND: 'fetch' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   refreshWorker = worker;
@@ -2310,7 +2421,7 @@ function startAutoRewriteJob(job = {}) {
 
   const worker = fork(REFRESH_WORKER_PATH, [], {
     cwd: __dirname,
-    env: process.env,
+    env: { ...process.env, QMREADER_WORKER_KIND: 'ai' },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   aiWorker = worker;
@@ -2449,18 +2560,20 @@ function freshnessCandidates() {
       const interval = sourceRefreshInterval(source);
       const fetchedAt = Number(meta.fetchedAt) || 0;
       const age = fetchedAt ? now - fetchedAt : Infinity;
+      const nextRetryAt = Number(meta.nextRetryAt) || 0;
       const overdueRatio = interval ? age / interval : 0;
       const priority = sourceRefreshPriority(source);
       const cost = sourceRefreshCost(source);
       const starvationBoost = overdueRatio >= 2 ? Math.min(4, overdueRatio - 1) : 0;
       const score = (overdueRatio * priority) + starvationBoost - (cost * 0.15);
-      return { meta, source, interval, age, overdueRatio, priority, cost, score };
+      return { meta, source, interval, age, overdueRatio, priority, cost, score, nextRetryAt };
     })
     .filter(item => (
       item.source
       && item.interval
       && item.meta.enabled
       && !item.source.manual
+      && (!item.nextRetryAt || item.nextRetryAt <= now)
       && item.age >= item.interval
     ))
     .sort((a, b) => (
@@ -2673,6 +2786,76 @@ app.get('/api/contributors', (req, res) => {
   res.json({ contributors: store.getContributors({ limit, sort }), sort });
 });
 
+app.get('/api/admin/submission-users', requireAdmin, (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(500, Number.parseInt(req.query.limit, 10) || 200));
+    const q = String(req.query.q || '').trim();
+    res.json({ users: store.getAdminSubmissionUsers({ q, limit }), q });
+  } catch (e) {
+    sendError(res, e, 'submission users failed');
+  }
+});
+
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(1000, Number.parseInt(req.query.limit, 10) || 500));
+    const q = String(req.query.q || '').trim();
+    res.json({ users: store.getAdminUsers({ q, limit }), q });
+  } catch (e) {
+    sendError(res, e, 'admin users failed');
+  }
+});
+
+app.get('/api/admin/users/:id/submissions', requireAdmin, (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(1000, Number.parseInt(req.query.limit, 10) || 500));
+    res.json(store.getAdminUserSubmissions(req.params.id, { limit }));
+  } catch (e) {
+    sendError(res, e, 'user submissions failed');
+  }
+});
+
+app.delete('/api/admin/users/:id/submissions', requireAdmin, (req, res) => {
+  try {
+    const confirmUserId = String(req.body && req.body.confirmUserId || '').trim();
+    if (!confirmUserId || confirmUserId !== req.params.id) {
+      return res.status(400).json({ error: '确认用户不匹配，未执行删除' });
+    }
+    const result = fetcher.deleteUserSubmissions(req.params.id, {
+      deletedBy: req.user.id,
+      reason: String(req.body && req.body.reason || '').trim() || '管理员批量删除用户投稿',
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    sendError(res, e, 'delete user submissions failed');
+  }
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  try {
+    const confirmUserId = String(req.body && req.body.confirmUserId || '').trim();
+    if (!confirmUserId || confirmUserId !== req.params.id) {
+      return res.status(400).json({ error: '确认用户不匹配，未执行删除' });
+    }
+    const result = fetcher.moderateUser(req.params.id, {
+      adminUserId: req.user.id,
+      reason: String(req.body && req.body.reason || '').trim() || '发布违规内容',
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    sendError(res, e, 'moderate user failed');
+  }
+});
+
+app.post('/api/admin/users/:id/restore', requireAdmin, (req, res) => {
+  try {
+    const user = store.restoreModeratedUser(req.params.id, { adminUserId: req.user.id });
+    res.json({ ok: true, user });
+  } catch (e) {
+    sendError(res, e, 'restore user failed');
+  }
+});
+
 app.get('/api/contributors/:id', (req, res) => {
   const contributor = store.getContributor(req.params.id, req.user);
   if (!contributor) return res.status(404).json({ error: 'contributor not found' });
@@ -2825,23 +3008,23 @@ app.post('/api/entry/:id/reaction', requireLogin, (req, res) => {
   }
 });
 
-app.post('/api/submit-link', async (req, res) => {
+app.post('/api/submit-link', requireLogin, submitLinkRateLimit, submitLinkDailyRateLimit, async (req, res) => {
   const url = String((req.body && req.body.url) || '').trim();
   const note = String((req.body && req.body.note) || '').trim();
   if (!url) return res.status(400).json({ error: '请填写要提交的链接' });
   try {
-    const submitter = req.user || {};
+    const submitter = req.user;
     const submitted = await fetcher.submitLink(url, submitter, { note });
     await translateSubmittedTitle(submitted);
     queueSubmittedRewrite(submitted);
-    const entry = fetcher.getEntryById(submitted.id, req.user || null) || submitted;
+    const entry = fetcher.getEntryById(submitted.id, req.user) || submitted;
     res.json({ entry });
   } catch (e) {
     sendError(res, e, 'submit link failed');
   }
 });
 
-app.post('/api/entry/:id/content', async (req, res) => {
+app.post('/api/entry/:id/content', originalFetchRateLimit, async (req, res) => {
   const entry = fetcher.getEntryById(req.params.id, req.user);
   if (!entry) return res.status(404).json({ error: 'entry not found' });
   try {
@@ -2893,6 +3076,11 @@ app.post('/api/entry/:id/rewrite', requireLogin, async (req, res) => {
   if (!entry) return res.status(404).json({ error: 'entry not found' });
   try {
     const prepared = await prepareEntryForAiAsset(entry, 'Rewrite');
+    if (entry.sourceId === 'producthunt' && !prepared.officialSiteFetched) {
+      const error = new Error(prepared.error || 'Product Hunt 官网正文抓取失败，未生成低质量改写');
+      error.statusCode = 422;
+      throw error;
+    }
     const result = await deepseek.rewriteEntry(prepared.entry, {
       ...requestAiConfig(req),
       author: requestAuthor(req),

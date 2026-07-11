@@ -1154,6 +1154,23 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
   padding: 11px 12px; border-radius: 10px;
   cursor: pointer; border: 1px solid transparent;
 }
+
+.list-load-more {
+  width: calc(100% - 16px);
+  min-height: 44px;
+  margin: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.list-load-more:hover {
+  border-color: var(--text-2);
+  background: var(--bg-2);
+}
 .entry-card:hover { background: var(--bg-1); }
 .entry-card.active { background: var(--bg-1); border-color: var(--border); box-shadow: 0 2px 8px var(--shadow); }
 .entry-main { flex: 1; min-width: 0; }
@@ -5293,6 +5310,87 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
   border-bottom-color: var(--border-subtle);
 }
 
+.admin-submission-panel {
+  margin-top: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.admin-submission-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.admin-submission-head h2,
+.admin-user-detail-head h3 { margin: 0; color: var(--text-0); }
+.admin-submission-head h2 { font-size: 18px; }
+.admin-submission-head p,
+.admin-user-detail-head p { margin: 5px 0 0; color: var(--text-2); font-size: 12.5px; line-height: 1.55; }
+.admin-submission-search { display: flex; gap: 8px; min-width: min(360px, 42vw); }
+.admin-submission-search input,
+.admin-moderation-reason input {
+  width: 100%; min-height: 38px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-0); color: var(--text-0); padding: 0 11px;
+}
+.admin-submission-workspace { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(0, 1.4fr); min-height: 480px; }
+.admin-submission-users { max-height: 680px; overflow-y: auto; border-right: 1px solid var(--border-subtle); }
+.admin-user-row {
+  display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  width: 100%; min-height: 68px; padding: 11px 13px; border: 0; border-bottom: 1px solid var(--border-subtle);
+  background: transparent; color: var(--text-0); text-align: left;
+}
+.admin-user-row:hover, .admin-user-row.active { background: var(--bg-1); }
+.admin-user-row.active { box-shadow: inset 3px 0 0 var(--accent); }
+.admin-user-row.disabled { background: color-mix(in srgb, var(--danger) 4%, var(--surface)); }
+.admin-user-avatar {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--bg-2); color: var(--text-0); font-weight: 820;
+}
+.admin-user-copy, .admin-user-meta { min-width: 0; display: grid; gap: 4px; }
+.admin-user-copy strong, .admin-user-copy small, .admin-user-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-user-copy strong { font-size: 13px; }
+.admin-user-copy small, .admin-user-meta small { color: var(--text-2); font-size: 10.5px; }
+.admin-user-meta { justify-items: end; max-width: 110px; }
+.admin-user-state { padding: 3px 7px; border-radius: 999px; background: var(--bg-2); color: var(--text-1); font-size: 10px; font-style: normal; }
+.admin-user-state.blocked { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+.admin-submission-detail { min-width: 0; padding: 18px; }
+.admin-submission-empty { display: grid; place-items: center; min-height: 180px; padding: 24px; color: var(--text-2); font-size: 12.5px; text-align: center; }
+.admin-submission-empty.compact { min-height: 110px; }
+.admin-user-detail-head { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+.admin-detail-kicker { color: var(--text-2); font-size: 10px; font-weight: 780; letter-spacing: .08em; text-transform: uppercase; }
+.admin-user-detail-head h3 { margin-top: 5px; font-size: 21px; }
+.admin-detail-counts { display: grid; grid-template-columns: auto auto; gap: 2px 8px; align-items: baseline; }
+.admin-detail-counts strong { font-size: 19px; text-align: right; }
+.admin-detail-counts span { color: var(--text-2); font-size: 11px; }
+.admin-moderation-note { display: flex; gap: 10px; margin-top: 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); color: var(--text-1); font-size: 12px; }
+.admin-moderation-note strong { color: var(--danger); white-space: nowrap; }
+.admin-moderation-reason { display: grid; gap: 6px; margin-top: 16px; }
+.admin-moderation-reason span { color: var(--text-2); font-size: 11px; font-weight: 740; }
+.admin-user-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ghost-btn.danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); color: var(--danger); }
+.ghost-btn.danger:hover { background: color-mix(in srgb, var(--danger) 9%, var(--surface)); }
+.admin-protected-note { margin: 10px 0 0; color: var(--text-2); font-size: 11px; }
+.admin-submission-records { display: grid; gap: 8px; max-height: 430px; margin-top: 18px; overflow-y: auto; }
+.admin-submission-record { display: grid; gap: 6px; padding: 11px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-0); }
+.admin-submission-record.deleted { opacity: .62; }
+.admin-submission-record div { display: flex; justify-content: space-between; gap: 12px; }
+.admin-submission-record strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.admin-submission-record span, .admin-submission-record a { color: var(--text-2); font-size: 10.5px; }
+.admin-submission-record a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .admin-submission-head { align-items: stretch; flex-direction: column; }
+  .admin-submission-search { min-width: 0; }
+  .admin-submission-workspace { grid-template-columns: 1fr; }
+  .admin-submission-users { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+  .admin-user-detail-head { align-items: stretch; flex-direction: column; }
+  .admin-detail-counts { justify-content: start; }
+}
+
 .article-info-panel {
   min-height: 0;
   overflow-y: auto;
@@ -8289,6 +8387,8 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
   grid-template-columns: 8px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
   min-height: 0;
   padding: 12px;
   border-radius: var(--radius-md);

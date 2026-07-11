@@ -20,14 +20,17 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "test": "node --test test/*.test.js",
     "icons:generate": "node scripts/generate-lucide-icons.js",
     "refresh:worker": "node scripts/refresh-worker.js --kind=refresh"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
     "compression": "^1.8.1",
+    "dompurify": "3.4.11",
     "express": "^4.19.2",
-    "rss-parser": "^3.13.0"
+    "rss-parser": "^3.13.0",
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "lucide": "^1.22.0"

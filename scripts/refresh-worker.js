@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+if (!process.env.QMREADER_WORKER_KIND) {
+  process.env.QMREADER_WORKER_KIND = process.send ? 'ipc' : 'cli';
+}
 const { runRefreshJob } = require('../lib/background-jobs');
 
 function send(message) {

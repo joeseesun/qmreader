@@ -7,8 +7,7 @@
   <link rel="alternate" type="application/rss+xml" title="QMReader 公开资产 RSS" href="https://rss.qiaomu.ai/assets.xml" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="shortcut icon" href="/favicon.svg" />
-  <link rel="stylesheet" href="/vendor/persona/widget.css?v=1" />
-  <link rel="stylesheet" href="/styles.css?v=155" />
+  <link rel="stylesheet" href="/styles.css?v=158" />
   <meta name="description" content="围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。" />
   <link rel="canonical" href="https://rss.qiaomu.ai/" />
   <meta property="og:site_name" content="QMReader" />
@@ -20,7 +19,24 @@
   <meta name="twitter:title" content="QMReader · RSS 阅读器" />
   <meta name="twitter:description" content="围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。" />
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"QMReader","url":"https://rss.qiaomu.ai/","description":"围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。"}</script>
-  <script defer src="https://umami.qiaomu.ai/script.js" data-website-id="79a3c342-fbc5-405b-9f41-6ce57a78c80d" data-domains="rss.qiaomu.ai"></script>
+  <script>
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        if (document.querySelector('script[data-qm-analytics]')) return;
+        const config = document.querySelector('meta[name="qmreader-analytics"]');
+        const src = config?.dataset.src || '';
+        const websiteId = config?.dataset.websiteId || '';
+        if (!src || !websiteId) return;
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.dataset.qmAnalytics = 'true';
+        script.dataset.websiteId = websiteId;
+        script.dataset.domains = config?.dataset.domains || location.hostname;
+        document.head.appendChild(script);
+      }, 2000);
+    }, { once: true });
+  </script>
 </head>
 <body data-theme="light">
   <div id="app">
@@ -460,6 +476,22 @@
         </section>
         <section id="admin-manage-status" class="manage-status"></section>
         <section id="admin-manage-list" class="manage-list admin-manage-list"></section>
+        <section class="admin-submission-panel" aria-labelledby="admin-submission-title">
+          <header class="admin-submission-head">
+            <div>
+              <h2 id="admin-submission-title">用户投稿管理</h2>
+              <p>封禁违规账号、撤销登录会话，并清理其读者投稿。数据库保留审计记录。</p>
+            </div>
+            <form id="admin-submission-search-form" class="admin-submission-search" role="search">
+              <input id="admin-submission-search" type="search" maxlength="100" placeholder="搜索昵称或邮箱前缀" aria-label="搜索投稿用户" />
+              <button class="ghost-btn" type="submit">搜索</button>
+            </form>
+          </header>
+          <div class="admin-submission-workspace">
+            <div id="admin-submission-users" class="admin-submission-users" role="list" aria-label="用户列表"></div>
+            <div id="admin-submission-detail" class="admin-submission-detail" role="region" aria-live="polite" aria-label="用户投稿详情"></div>
+          </div>
+        </section>
       </section>
     </section>
 
@@ -735,9 +767,8 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/purify.min.js"></script>
-  <script src="/vendor/persona/index.global.js?v=1"></script>
+  <script src="/purify.min.js?v=3.4.11"></script>
   <script src="/lucide-icons.js?v=2"></script>
-  <script src="/app.js?v=154"></script>
+  <script src="/app.js?v=158"></script>
 </body>
 </html>

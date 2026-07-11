@@ -123,6 +123,7 @@ HOST=127.0.0.1 PORT=3000 npm start
 | `ARTICLE_REFRESH_INTERVAL_MS` | `7200000` | `article` 分类源默认检查间隔 |
 | `PODCAST_REFRESH_INTERVAL_MS` | `21600000` | `podcast` 分类源默认检查间隔 |
 | `SOURCE_INTERACTION_REFRESH_COOLDOWN_MS` | `300000` | 打开文章或切换频道触发后台刷新时的同源冷却时间 |
+| `FETCH_SOURCE_CONCURRENCY` | `6` | 批量刷新时并发抓取的信息源数量，范围 1–8 |
 | `TITLE_TRANSLATION_LIMIT` | `80` | 单轮标题翻译上限 |
 | `AUTO_REWRITE_SOURCE_IDS` | 空 | 限定自动改写源；空值表示启用源中可改写的内容 |
 | `AUTO_REWRITE_LIMIT_PER_SOURCE` | `3` | 每个源默认自动改写条数 |
@@ -136,8 +137,8 @@ HOST=127.0.0.1 PORT=3000 npm start
 | 角色 | 权限 |
 |---|---|
 | 游客 | 浏览文章、公开翻译、公开改写、公开点评和公开文章对话 |
-| 注册用户 | 发布点评，生成并保存翻译/改写，围绕当前文章对话，管理自己的公开资产 |
-| 管理员 | 手动刷新、启用/禁用信息源、触发标题补翻译、管理源状态 |
+| 注册用户 | 提交链接、发布点评，生成并保存翻译/改写，围绕当前文章对话，管理自己的公开资产 |
+| 管理员 | 手动刷新、启用/禁用信息源、触发标题补翻译、管理源状态，以及清理投稿、封禁/恢复违规用户 |
 
 注册只校验邮箱格式和密码长度，不做邮件验证码。管理员账号通过环境变量 seed。
 
@@ -147,6 +148,7 @@ HOST=127.0.0.1 PORT=3000 npm start
 - 用户在页面里配置的 AI provider/API key 保存在浏览器 localStorage，不写入 SQLite。
 - 文章对话、模型列表和连接测试会把用户 key 随请求发送到本站后端代理调用。
 - Base URL 必须是公开 `https://` 地址，服务端会拒绝本机和内网地址，降低 SSRF 风险。
+- 读者投稿必须登录；提交地址会经过 DNS/IP、端口、路径和重定向复核，拒绝内网、IP 字面量、探针接口与后台面板，并按账号限流。
 - 运行数据在 `data/qmreader.sqlite` 和 `data/cache.json`，默认不提交到 Git。
 - 公开贡献内容会显示在资产页、贡献者页、sitemap 和 RSS；不要在公开点评或对话里写私密信息。
 
@@ -212,8 +214,9 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 | GET | `/contributors` | 公开贡献者目录 |
 | GET | `/contributors/:id.xml` | 贡献者公开资产 RSS |
 | GET | `/llms.txt` | 站点定位、公开目录、RSS 和 sitemap 汇总 |
+| POST | `/api/submit-link` | 注册用户提交公开链接 |
 
-需要登录或管理员权限的接口包括生成翻译/改写、发布点评、文章对话、刷新源、启用/禁用源等。详见 `server.js` 路由。
+需要登录或管理员权限的接口包括提交链接、生成翻译/改写、发布点评、文章对话、刷新源、启用/禁用源和违规用户管理等。详见 `server.js` 路由。
 
 ## 部署
 
@@ -267,9 +270,13 @@ data/                      运行时数据，默认不提交
 ## 验证
 
 ```bash
+npm test
 node --check server.js
 node --check lib/background-jobs.js
+node --check lib/deepseek.js
+node --check lib/fetcher.js
 node --check lib/sources.js
+node --check lib/store.js
 node --check scripts/refresh-worker.js
 node --check public/app.js
 npm run refresh:worker
@@ -288,7 +295,7 @@ npm run refresh:worker
 - AI 生成质量依赖外部 provider，可能遇到限流、模型变更或费用问题。
 - 默认 SQLite 适合个人/小团队自托管，不是高并发多租户服务。
 - 注册没有邮件验证，不适合直接作为开放社区账号系统。
-- Google S2 favicon 在部分网络环境不可用，会回退到字母图标。
+- Google S2 favicon 在部分网络环境不可用，会回退到内置安全占位图标。
 - GitHub social preview 暂未自动配置，需要仓库发布后在 GitHub Settings 手动上传。
 
 ## 贡献

@@ -120,6 +120,7 @@ const DEFAULT_AGENT_PROMPTS = AI_READING_TASKS
   .slice(0, 8);
 const AGENT_PROMPT_LIMIT = 24;
 const PERSONA_AGENT_VERSION = 'persona-qmreader-v1';
+const ENTRY_RENDER_BATCH_SIZE = 100;
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const LUCIDE_DEFAULT_ATTRS = {
   xmlns: 'http://www.w3.org/2000/svg',
@@ -609,7 +610,14 @@ function historyEntriesForStorage(map) {
 const state = {
   sources: [],
   entries: [],
+  entryRenderLimit: ENTRY_RENDER_BATCH_SIZE,
   contributors: [],
+  adminSubmissionUsers: [],
+  adminSubmissionQuery: '',
+  adminSelectedSubmissionUserId: '',
+  adminSubmissionDetail: null,
+  adminSubmissionUsersLoaded: false,
+  adminSubmissionLoading: false,
   view: 'all',            // all | hot | unread | starred | history | assets | contributors
   filterSource: null,
   filterCategory: null,
@@ -1700,6 +1708,7 @@ async function loadEntries() {
   if (state.q && state.view !== 'assets' && state.view !== 'contributors') p.set('q', state.q);
   const data = await api('/api/entries?' + p.toString());
   state.entries = data.entries;
+  state.entryRenderLimit = ENTRY_RENDER_BATCH_SIZE;
 }
 async function loadContributors() {
   const p = new URLSearchParams({ limit: '200' });
@@ -3267,12 +3276,19 @@ function openSubmitLinkModal(prefill = {}) {
     url: String(prefill.url || '').trim(),
     note: String(prefill.note || '').trim(),
   };
+  if (!state.me) {
+    state.pendingSubmitLink = next;
+    openAuth('login');
+    toast('注册或登录后才能提交链接');
+    return false;
+  }
   $('#submit-link-url').value = next.url || '';
   $('#submit-link-note').value = next.note || '';
   $('#submit-link-submit').disabled = false;
   $('#submit-link-submit').textContent = '提交';
   $('#submit-link-modal').classList.remove('hidden');
   setTimeout(() => (next.url ? $('#submit-link-note') : $('#submit-link-url')).focus(), 30);
+  return true;
 }
 
 function closeSubmitLinkModal() {
@@ -3280,6 +3296,7 @@ function closeSubmitLinkModal() {
 }
 
 async function submitReaderLink() {
+  if (!requireAuth('login')) return;
   const url = $('#submit-link-url').value.trim();
   const note = $('#submit-link-note').value.trim();
   if (!url) {
@@ -3339,7 +3356,7 @@ async function submitAuth() {
     renderAiSettings();
     const route = routeStateFromUrl();
     if (route.dashboard) await openMyCommentsModal({ push: false, tab: route.dashboardTab });
-    if (state.pendingSubmitLink && state.pendingSubmitLink.url) {
+    if (state.pendingSubmitLink) {
       const pending = state.pendingSubmitLink;
       state.pendingSubmitLink = null;
       openSubmitLinkModal(pending);
@@ -3495,8 +3512,9 @@ function renderList() {
     el.innerHTML = `<div class="list-empty">${text}</div>`;
     return;
   }
+  const visibleList = list.slice(0, state.entryRenderLimit);
   const frag = document.createDocumentFragment();
-  for (const e of list) {
+  for (const e of visibleList) {
     const src = sourceById(e.sourceId);
     const assetsHtml = assetBadgesHtml(e, { interactive: true });
     const entryActivity = assetActivityLabel(e) || entryHistoryLabel(e) || hotEntryLabel(e);
@@ -3530,7 +3548,7 @@ function renderList() {
         ${assetItems || (assetPreview ? assetPreviewHtml(assetPreview) : '')}
         ${entryActivity ? `<div class="entry-asset-activity">${escapeHtml(entryActivity)}</div>` : ''}
       </div>
-      ${e.image ? `<div class="entry-media"><img class="entry-thumb" src="${escapeHtml(e.image)}" loading="lazy" onerror="this.closest('.entry-media')?.remove()" /></div>` : ''}`;
+      ${e.image ? `<div class="entry-media"><img class="entry-thumb" src="${escapeHtml(e.image)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.entry-media')?.remove()" /></div>` : ''}`;
     card.onclick = (event) => {
       const previewCopyContent = event.target.closest('[data-asset-preview-copy-content]');
       if (previewCopyContent) {
@@ -3577,11 +3595,33 @@ function renderList() {
       openEntry(e);
     };
     card.onkeydown = (event) => {
+      if (event.target !== card) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
       openEntry(e);
     };
     frag.appendChild(card);
+  }
+  if (visibleList.length < list.length) {
+    const more = document.createElement('button');
+    const remaining = list.length - visibleList.length;
+    more.type = 'button';
+    more.className = 'list-load-more';
+    more.textContent = `继续显示 · 还有 ${remaining} 条`;
+    more.setAttribute('aria-label', `继续显示文章，还有 ${remaining} 条`);
+    more.onclick = () => {
+      const scrollTop = el.scrollTop;
+      const nextId = list[visibleList.length] && list[visibleList.length].id;
+      state.entryRenderLimit += ENTRY_RENDER_BATCH_SIZE;
+      renderList();
+      requestAnimationFrame(() => {
+        el.scrollTop = scrollTop;
+        const firstNewCard = [...el.querySelectorAll('.entry-card')]
+          .find(card => card.dataset.id === nextId);
+        if (firstNewCard) firstNewCard.focus({ preventScroll: true });
+      });
+    };
+    frag.appendChild(more);
   }
   el.appendChild(frag);
 }
@@ -3662,7 +3702,7 @@ function newEntryCount(beforeEntries = [], afterEntries = []) {
 }
 
 /* ---------- Reader ---------- */
-function sanitize(html) {
+function sanitize(html, { prioritizeFirstImage = false } = {}) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   doc.querySelectorAll('script,style,form,iframe,object,embed,button,input,select,textarea,svg,canvas').forEach(n => n.remove());
   doc.querySelectorAll('.pencraft,.pc-reset,.icon-container,.image-link-expand,.view-image,[class*="image-link"],[class*="view-image"]').forEach(n => {
@@ -3673,11 +3713,22 @@ function sanitize(html) {
     if (n.textContent.replace(/\s+/g, '').trim()) return;
     n.remove();
   });
-  doc.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => { if (/^on/i.test(a.name)) n.removeAttribute(a.name); }));
+  doc.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => {
+    if (/^on/i.test(a.name) || a.name.toLowerCase() === 'style') n.removeAttribute(a.name);
+  }));
+  doc.querySelectorAll('img').forEach((img, index) => {
+    const prioritized = prioritizeFirstImage && index === 0;
+    img.setAttribute('loading', prioritized ? 'eager' : 'lazy');
+    img.setAttribute('decoding', 'async');
+    img.setAttribute('referrerpolicy', 'no-referrer');
+    if (prioritized) img.setAttribute('fetchpriority', 'high');
+    else img.removeAttribute('fetchpriority');
+  });
   const cleaned = doc.body.innerHTML;
   if (window.DOMPurify) {
     return DOMPurify.sanitize(cleaned, {
       FORBID_TAGS: ['style', 'form', 'input', 'button', 'svg', 'canvas', 'iframe', 'object', 'embed'],
+      FORBID_ATTR: ['style'],
       ADD_ATTR: ['target'],
     });
   }
@@ -3735,9 +3786,9 @@ function extractTranslationSourceBlocks(entry = state.activeEntry) {
     const tag = el.tagName.toLowerCase();
     const htmlBlock = sourceHtmlForBrowserBlock(el);
     const source = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    const kind = tag === 'img' || tag === 'figure' || tag === 'hr' ? 'media' : 'text';
+    const kind = tag === 'img' || tag === 'hr' || (tag === 'figure' && !source) ? 'media' : 'text';
     return { tag, html: htmlBlock, source, kind };
-  }).filter(block => block.kind === 'media' || block.source.length >= 12).slice(0, 40);
+  }).filter(block => block.kind === 'media' || block.source.length >= 2);
 }
 
 function sourceLinksFromHtml(html) {
@@ -3792,6 +3843,7 @@ function targetHtmlFromSourceBlock(block, target) {
   const media = sourceImagesFromHtml(block.html);
   if (tag === 'blockquote') return `<blockquote><p>${linked}</p>${media}</blockquote>`;
   if (/^h[1-6]$/.test(tag)) return `<${tag}>${linked}</${tag}>`;
+  if (tag === 'figure') return `<figure>${media}<figcaption>${linked}</figcaption></figure>`;
   if (tag === 'pre') return `<pre><code>${escapeHtml(cleanTarget)}</code></pre>`;
   if (tag === 'li') return `<ul><li>${linked}</li></ul>`;
   if (tag === 'td' || tag === 'th') return `<p>${linked}</p>`;
@@ -4765,7 +4817,7 @@ function renderReaderToc(root = $('#reader-content')) {
 
 function renderOriginalContent(entry, content) {
   const fallback = entry && entry.summary ? `<p>${escapeHtml(entry.summary)}</p>` : '<p>（无内容，请打开原文）</p>';
-  $('#reader-content').innerHTML = sanitize(content || fallback);
+  $('#reader-content').innerHTML = sanitize(content || fallback, { prioritizeFirstImage: true });
   $$('#reader-content a').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
   renderReaderToc($('#reader-content'));
   updateReaderLanguageProfile();
@@ -4837,6 +4889,10 @@ async function submitArticleLinkToSite() {
   if (!url) return;
   const title = state.activeEntry && (state.activeEntry.titleZh || state.activeEntry.title);
   const note = title ? `来自《${title}》正文链接` : '';
+  if (!state.me) {
+    openSubmitLinkModal({ url, note });
+    return;
+  }
   if (state.articleLinkSubmitting) return;
   state.articleLinkSubmitting = true;
   try {
@@ -7713,7 +7769,7 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
   if (state.translation && state.activeEntry?.id === e.id) renderTranslation(state.translation);
 }
 
-function closeReaderFromRoute() {
+function closeReaderFromRoute({ rerenderList = true } = {}) {
   setWorkspacePage('');
   state.activeEntry = null;
   state.agentMessages = [];
@@ -7745,7 +7801,7 @@ function closeReaderFromRoute() {
   document.getElementById('app').classList.remove('reading');
   applyReaderPrefs();
   document.title = 'QMReader · RSS 阅读器';
-  renderList();
+  if (rerenderList) renderList();
   renderAgent();
 }
 
@@ -7762,7 +7818,7 @@ async function openEntryById(entryId, { tab = null, focus = null, aiAssetId = ''
   return true;
 }
 
-async function openEntryFromUrl() {
+async function openEntryFromUrl({ reuseLoadedCollections = false } = {}) {
   const route = routeStateFromUrl();
   if (route.admin) {
     state.view = 'all';
@@ -7836,11 +7892,15 @@ async function openEntryFromUrl() {
       state.contributorSort = 'latest';
       state.q = '';
     }
-    await Promise.all([loadEntries(), loadContributors()]);
+    if (!reuseLoadedCollections) {
+      await Promise.all([loadEntries(), loadContributors()]);
+    } else if (route.contributorSort !== 'latest') {
+      await loadContributors();
+    }
     updateListTitle();
     renderList();
     renderSidebar();
-    closeReaderFromRoute();
+    closeReaderFromRoute({ rerenderList: false });
     if (route.view === 'assets' || route.view === 'contributors') document.title = listRouteTitle();
     return false;
   }
@@ -8236,6 +8296,10 @@ function renderManage(target = '#manage-list', statusTarget = '#manage-status') 
 function renderAdminPage() {
   if (!isAdmin()) return;
   renderManage('#admin-manage-list', '#admin-manage-status');
+  renderAdminSubmissionManager();
+  if (!state.adminSubmissionUsersLoaded && !state.adminSubmissionLoading) {
+    loadAdminSubmissionUsers().catch(error => toast('加载用户管理失败: ' + error.message, 5000));
+  }
   const refreshBtn = $('#admin-refresh-btn');
   if (refreshBtn) {
     refreshBtn.disabled = Boolean(state.refreshing);
@@ -8243,6 +8307,194 @@ function renderAdminPage() {
       className: state.refreshing ? 'app-icon app-icon-spin' : 'app-icon',
     });
   }
+}
+
+function adminSubmissionUserById(userId) {
+  return state.adminSubmissionUsers.find(item => item.userId === userId) || null;
+}
+
+function adminSubmissionCountLabel(user) {
+  const active = Number(user && user.activeSubmissionCount) || 0;
+  const deleted = Number(user && user.deletedSubmissionCount) || 0;
+  return active ? `${active} 篇公开投稿` : (deleted ? `${deleted} 篇已清理` : '暂无投稿');
+}
+
+function renderAdminSubmissionManager() {
+  const usersEl = $('#admin-submission-users');
+  const detailEl = $('#admin-submission-detail');
+  if (!usersEl || !detailEl) return;
+  if (state.adminSubmissionLoading && !state.adminSubmissionUsersLoaded) {
+    usersEl.innerHTML = '<div class="admin-submission-empty">正在加载用户…</div>';
+  } else if (!state.adminSubmissionUsers.length) {
+    usersEl.innerHTML = '<div class="admin-submission-empty">没有匹配用户</div>';
+  } else {
+    usersEl.innerHTML = state.adminSubmissionUsers.map(user => {
+      const selected = user.userId === state.adminSelectedSubmissionUserId;
+      return `<button class="admin-user-row ${selected ? 'active' : ''} ${user.disabled ? 'disabled' : ''}" type="button"
+        role="listitem" data-admin-user-id="${escapeHtml(user.userId)}" aria-pressed="${selected ? 'true' : 'false'}">
+        <span class="admin-user-avatar">${escapeHtml((user.displayName || user.email || '?').slice(0, 1).toUpperCase())}</span>
+        <span class="admin-user-copy">
+          <strong>${escapeHtml(user.displayName || '未命名用户')}</strong>
+          <small>${escapeHtml(user.email || '')}</small>
+        </span>
+        <span class="admin-user-meta">
+          <em class="admin-user-state ${user.disabled ? 'blocked' : ''}">${user.disabled ? '已封禁' : (user.role === 'admin' ? '管理员' : '正常')}</em>
+          <small>${escapeHtml(adminSubmissionCountLabel(user))}</small>
+        </span>
+      </button>`;
+    }).join('');
+  }
+
+  const detail = state.adminSubmissionDetail;
+  if (state.adminSubmissionLoading && state.adminSelectedSubmissionUserId && !detail) {
+    detailEl.innerHTML = '<div class="admin-submission-empty">正在加载投稿详情…</div>';
+    return;
+  }
+  if (!detail || !detail.user) {
+    detailEl.innerHTML = '<div class="admin-submission-empty">选择左侧用户查看投稿和处理账号</div>';
+    return;
+  }
+  const user = detail.user;
+  const isProtected = user.role === 'admin' || user.userId === state.me?.id;
+  const submissions = Array.isArray(detail.submissions) ? detail.submissions : [];
+  detailEl.innerHTML = `
+    <div class="admin-user-detail-head">
+      <div>
+        <span class="admin-detail-kicker">${user.disabled ? '已封禁用户' : user.role === 'admin' ? '管理员账号' : '注册用户'}</span>
+        <h3>${escapeHtml(user.displayName || '未命名用户')}</h3>
+        <p>${escapeHtml(user.email || '')}</p>
+      </div>
+      <div class="admin-detail-counts">
+        <strong>${Number(detail.activeSubmissionCount) || 0}</strong><span>公开</span>
+        <strong>${Number(detail.deletedSubmissionCount) || 0}</strong><span>已清理</span>
+      </div>
+    </div>
+    ${user.disabledReason ? `<div class="admin-moderation-note"><strong>封禁原因</strong><span>${escapeHtml(user.disabledReason)}</span></div>` : ''}
+    <label class="admin-moderation-reason">
+      <span>处理原因</span>
+      <input id="admin-moderation-reason" maxlength="300" value="${escapeHtml(user.disabledReason || '')}" placeholder="例如：批量提交内网探测链接" />
+    </label>
+    <div class="admin-user-actions">
+      <button id="admin-delete-user-submissions" class="ghost-btn" type="button" ${(Number(detail.activeSubmissionCount) || 0) ? '' : 'disabled'}>清理全部投稿</button>
+      ${user.disabled
+        ? `<button id="admin-restore-user" class="ghost-btn primary" type="button" ${isProtected ? 'disabled' : ''}>恢复账号</button>`
+        : `<button id="admin-delete-user" class="ghost-btn danger" type="button" ${isProtected ? 'disabled' : ''}>删除违规用户</button>`}
+    </div>
+    ${isProtected ? '<p class="admin-protected-note">管理员账号受保护，不能在这里删除。</p>' : ''}
+    <div class="admin-submission-records">
+      ${submissions.length ? submissions.map(item => `
+        <article class="admin-submission-record ${item.deletedAt ? 'deleted' : ''}">
+          <div><strong>${escapeHtml(item.title || item.url || '未命名投稿')}</strong><span>${item.deletedAt ? '已清理' : '公开'} · ${escapeHtml(formatAssetTime(item.updatedAt || item.createdAt))}</span></div>
+          <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(compactUrlLabel(item.url))}</a>
+        </article>
+      `).join('') : '<div class="admin-submission-empty compact">该用户还没有投稿</div>'}
+    </div>`;
+  $('#admin-delete-user-submissions')?.addEventListener('click', deleteAdminUserSubmissions);
+  $('#admin-delete-user')?.addEventListener('click', deleteAdminUser);
+  $('#admin-restore-user')?.addEventListener('click', restoreAdminUser);
+}
+
+async function loadAdminSubmissionUsers(query = state.adminSubmissionQuery) {
+  if (!isAdmin()) return;
+  state.adminSubmissionQuery = String(query || '').trim();
+  state.adminSubmissionLoading = true;
+  renderAdminSubmissionManager();
+  try {
+    const params = new URLSearchParams({ limit: '500' });
+    if (state.adminSubmissionQuery) params.set('q', state.adminSubmissionQuery);
+    const data = await api(`/api/admin/users?${params}`);
+    state.adminSubmissionUsers = data.users || [];
+    state.adminSubmissionUsersLoaded = true;
+    if (!state.adminSubmissionUsers.some(user => user.userId === state.adminSelectedSubmissionUserId)) {
+      state.adminSelectedSubmissionUserId = state.adminSubmissionUsers[0]?.userId || '';
+      state.adminSubmissionDetail = null;
+    }
+  } finally {
+    state.adminSubmissionLoading = false;
+    renderAdminSubmissionManager();
+  }
+  if (state.adminSelectedSubmissionUserId) await loadAdminUserSubmissions(state.adminSelectedSubmissionUserId);
+}
+
+async function loadAdminUserSubmissions(userId) {
+  if (!isAdmin() || !userId) return;
+  state.adminSelectedSubmissionUserId = userId;
+  state.adminSubmissionDetail = null;
+  state.adminSubmissionLoading = true;
+  renderAdminSubmissionManager();
+  try {
+    state.adminSubmissionDetail = await api(`/api/admin/users/${encodeURIComponent(userId)}/submissions?limit=500`);
+  } finally {
+    state.adminSubmissionLoading = false;
+    renderAdminSubmissionManager();
+  }
+}
+
+async function refreshAdminModerationData(userId = state.adminSelectedSubmissionUserId) {
+  await Promise.all([loadSources(), loadEntries(), loadContributors()]);
+  state.adminSubmissionUsersLoaded = false;
+  state.adminSelectedSubmissionUserId = userId || '';
+  await loadAdminSubmissionUsers(state.adminSubmissionQuery);
+  updateListTitle();
+  renderList();
+  renderSidebar();
+}
+
+function adminModerationReason() {
+  return String($('#admin-moderation-reason')?.value || '').trim() || '发布违规内容';
+}
+
+async function deleteAdminUserSubmissions() {
+  const detail = state.adminSubmissionDetail;
+  if (!detail?.user || !(Number(detail.activeSubmissionCount) || 0)) return;
+  const user = detail.user;
+  const ok = await showConfirmDialog({
+    title: '清理该用户全部投稿',
+    message: `确认隐藏「${user.displayName || user.email}」当前公开的 ${detail.activeSubmissionCount} 篇读者投稿？账号本身不会被停用。`,
+    confirmText: '清理全部投稿',
+    danger: true,
+  });
+  if (!ok) return;
+  await api(`/api/admin/users/${encodeURIComponent(user.userId)}/submissions`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmUserId: user.userId, reason: adminModerationReason() }),
+  });
+  await refreshAdminModerationData(user.userId);
+  toast('该用户的公开投稿已清理');
+}
+
+async function deleteAdminUser() {
+  const user = state.adminSubmissionDetail?.user;
+  if (!user || user.role === 'admin' || user.userId === state.me?.id) return;
+  const ok = await showConfirmDialog({
+    title: '删除违规用户',
+    message: `确认停用「${user.displayName || user.email}」？系统会立即撤销其登录会话、禁止再次登录，并隐藏全部读者投稿。审计记录会保留。`,
+    confirmText: '删除违规用户',
+    danger: true,
+  });
+  if (!ok) return;
+  await api(`/api/admin/users/${encodeURIComponent(user.userId)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmUserId: user.userId, reason: adminModerationReason() }),
+  });
+  await refreshAdminModerationData(user.userId);
+  toast('违规用户已停用，会话和公开投稿已清理');
+}
+
+async function restoreAdminUser() {
+  const user = state.adminSubmissionDetail?.user;
+  if (!user || !user.disabled || user.role === 'admin') return;
+  const ok = await showConfirmDialog({
+    title: '恢复用户账号',
+    message: `恢复「${user.displayName || user.email}」登录权限？此前清理的投稿不会自动恢复。`,
+    confirmText: '恢复账号',
+  });
+  if (!ok) return;
+  await api(`/api/admin/users/${encodeURIComponent(user.userId)}/restore`, { method: 'POST' });
+  await refreshAdminModerationData(user.userId);
+  toast('用户账号已恢复');
 }
 
 async function openAdminPage({ push = true } = {}) {
@@ -9488,6 +9740,14 @@ $('#admin-refresh-btn').onclick = refreshAll;
 $('#admin-manage-modal-btn').onclick = () => { renderManage(); $('#manage-modal').classList.remove('hidden'); };
 $('#admin-back-dashboard').onclick = () => openMyCommentsModal({ tab: 'profile' });
 $('#admin-close').onclick = closeAdminPage;
+$('#admin-submission-search-form').onsubmit = (event) => {
+  event.preventDefault();
+  loadAdminSubmissionUsers($('#admin-submission-search').value).catch(error => toast('搜索用户失败: ' + error.message, 5000));
+};
+$('#admin-submission-users').onclick = (event) => {
+  const row = event.target.closest('[data-admin-user-id]');
+  if (row) loadAdminUserSubmissions(row.dataset.adminUserId).catch(error => toast('加载投稿失败: ' + error.message, 5000));
+};
 $('#profile-link-add').onclick = () => {
   state.profileLinksDraft = [...collectProfileLinks(), { title: '', url: '' }].slice(0, 12);
   renderProfileLinksEditor();
@@ -9882,21 +10142,24 @@ $('#reader-pane').addEventListener('scroll', hideArticleLinkMenu, { passive: tru
   setContextPanel(state.contextPanel, { persist: false, expand: false });
   $('#entry-list').innerHTML = '<div class="list-empty">正在加载订阅内容…</div>';
   try {
-    await loadMe();
-    const data = await loadSources();
-    await reload({ clearUrl: false });
-    renderAgent();
+    const [, data] = await Promise.all([
+      loadMe(),
+      loadSources(),
+      loadEntries(),
+      loadContributors(),
+    ]);
+    await openEntryFromUrl({ reuseLoadedCollections: true });
     // first boot: server may still be fetching — poll a few times
     if (data.refreshing || state.entries.length === 0) {
       for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 2000));
         const d = await loadSources();
-        await Promise.all([loadEntries(), loadContributors()]);
-        renderList(); renderSidebar(); updateListTitle();
         if (!d.refreshing && state.entries.length) break;
+        if (!d.refreshing) break;
       }
+      await Promise.all([loadEntries(), loadContributors()]);
+      updateListTitle(); renderList(); renderSidebar();
     }
-    await openEntryFromUrl();
   } catch (e) {
     toast('加载失败: ' + e.message, 5000);
     $('#entry-list').innerHTML = `<div class="list-empty">数据加载失败：${escapeHtml(e.message)}<br/><button class="ghost-btn" onclick="location.reload()" style="margin-top:10px">重新加载</button></div>`;
