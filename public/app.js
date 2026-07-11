@@ -613,6 +613,8 @@ const state = {
   entryRenderLimit: ENTRY_RENDER_BATCH_SIZE,
   contributors: [],
   adminSubmissionUsers: [],
+  adminSubmissionRequests: [],
+  adminSubmissionRequestsLoaded: false,
   adminSubmissionQuery: '',
   adminSelectedSubmissionUserId: '',
   adminSubmissionDetail: null,
@@ -3313,19 +3315,7 @@ async function submitReaderLink() {
       body: JSON.stringify({ url, note }),
     });
     closeSubmitLinkModal();
-    state.view = 'all';
-    state.filterSource = 'user-submitted';
-    state.filterCategory = null;
-    state.assetFilter = null;
-    state.assetSort = 'latest';
-    state.contributorSort = 'latest';
-    state.q = '';
-    await Promise.all([loadSources(), loadEntries(), loadContributors()]);
-    updateListTitle();
-    renderList();
-    renderSidebar();
-    if (data.entry) await openEntry(data.entry);
-    toast('已收录到读者提交，正在生成中文改写');
+    if (data.pending) toast('已进入审核队列，通过后才会抓取和公开');
   } catch (err) {
     toast('提交失败: ' + err.message, 5000);
   } finally {
@@ -8297,6 +8287,10 @@ function renderAdminPage() {
   if (!isAdmin()) return;
   renderManage('#admin-manage-list', '#admin-manage-status');
   renderAdminSubmissionManager();
+  renderAdminSubmissionRequests();
+  if (!state.adminSubmissionRequestsLoaded) {
+    loadAdminSubmissionRequests().catch(error => toast('加载待审核投稿失败: ' + error.message, 5000));
+  }
   if (!state.adminSubmissionUsersLoaded && !state.adminSubmissionLoading) {
     loadAdminSubmissionUsers().catch(error => toast('加载用户管理失败: ' + error.message, 5000));
   }
@@ -8307,6 +8301,59 @@ function renderAdminPage() {
       className: state.refreshing ? 'app-icon app-icon-spin' : 'app-icon',
     });
   }
+}
+
+function renderAdminSubmissionRequests() {
+  const el = $('#admin-submission-requests');
+  if (!el) return;
+  const requests = Array.isArray(state.adminSubmissionRequests) ? state.adminSubmissionRequests : [];
+  el.innerHTML = requests.length ? requests.map(request => `
+    <article class="admin-review-item" role="listitem" data-submission-request-id="${escapeHtml(request.id)}">
+      <div class="admin-review-copy">
+        <strong>${escapeHtml(request.displayName || request.author || request.email || '注册用户')}</strong>
+        <span>${escapeHtml(request.email || '')} · ${escapeHtml(formatAssetTime(request.createdAt))}</span>
+        <a href="${escapeHtml(request.url)}" target="_blank" rel="noopener noreferrer nofollow">${escapeHtml(request.url)}</a>
+        ${request.note ? `<p>${escapeHtml(request.note)}</p>` : ''}
+      </div>
+      <div class="admin-review-actions">
+        <button class="ghost-btn primary" type="button" data-review-action="approve">审核并收录</button>
+        <button class="ghost-btn danger" type="button" data-review-action="reject">拒绝</button>
+      </div>
+    </article>`).join('') : '<div class="admin-submission-empty">暂无待审核投稿</div>';
+}
+
+async function loadAdminSubmissionRequests() {
+  if (!isAdmin()) return;
+  const data = await api('/api/admin/submission-requests?status=pending&limit=200');
+  state.adminSubmissionRequests = data.requests || [];
+  state.adminSubmissionRequestsLoaded = true;
+  renderAdminSubmissionRequests();
+}
+
+async function reviewAdminSubmissionRequest(requestId, action) {
+  const request = state.adminSubmissionRequests.find(item => item.id === requestId);
+  if (!request) return;
+  if (action === 'approve') {
+    const ok = await showConfirmDialog({
+      title: '审核并收录',
+      message: `确认访问并抓取 ${request.url}？只有此操作会让服务器访问目标站。`,
+      confirmText: '审核并收录',
+    });
+    if (!ok) return;
+    await api(`/api/admin/submission-requests/${encodeURIComponent(requestId)}/approve`, { method: 'POST' });
+    toast('投稿已审核通过并收录');
+  } else {
+    await api(`/api/admin/submission-requests/${encodeURIComponent(requestId)}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: '不符合收录要求' }),
+    });
+    toast('投稿已拒绝');
+  }
+  await loadAdminSubmissionRequests();
+  await Promise.all([loadSources(), loadEntries()]);
+  renderSidebar();
+  renderList();
 }
 
 function adminSubmissionUserById(userId) {
@@ -9747,6 +9794,13 @@ $('#admin-submission-search-form').onsubmit = (event) => {
 $('#admin-submission-users').onclick = (event) => {
   const row = event.target.closest('[data-admin-user-id]');
   if (row) loadAdminUserSubmissions(row.dataset.adminUserId).catch(error => toast('加载投稿失败: ' + error.message, 5000));
+};
+$('#admin-submission-requests').onclick = (event) => {
+  const action = event.target.closest('[data-review-action]');
+  const row = event.target.closest('[data-submission-request-id]');
+  if (!action || !row) return;
+  reviewAdminSubmissionRequest(row.dataset.submissionRequestId, action.dataset.reviewAction)
+    .catch(error => toast('审核投稿失败: ' + error.message, 5000));
 };
 $('#profile-link-add').onclick = () => {
   state.profileLinksDraft = [...collectProfileLinks(), { title: '', url: '' }].slice(0, 12);

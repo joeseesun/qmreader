@@ -70,6 +70,25 @@ app.set('trust proxy', 1);
 app.use(compression());
 app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  if (!unsafe) return next();
+  if (String(req.get('sec-fetch-site') || '').toLowerCase() === 'cross-site') {
+    return res.status(403).json({ error: '拒绝跨站操作' });
+  }
+  const origin = String(req.get('origin') || '').trim();
+  if (!origin) return next();
+  try {
+    if (new URL(origin).host !== req.get('host')) return res.status(403).json({ error: '拒绝跨站操作' });
+  } catch {
+    return res.status(403).json({ error: '请求来源无效' });
+  }
+  return next();
+});
+app.use((req, res, next) => {
   try {
     req.user = store.getUserBySessionToken(cookieValue(req, SESSION_COOKIE));
   } catch (error) {
@@ -135,6 +154,16 @@ const submitLinkDailyRateLimit = createRateLimiter({
   max: 20,
   message: '每天最多收录 20 个链接，请明天再试',
   key: req => `user:${req.user && req.user.id || 'anonymous'}`,
+});
+const registerRateLimit = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: '该网络注册账号过于频繁，请稍后再试',
+});
+const loginRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: '登录尝试过于频繁，请稍后再试',
 });
 const originalFetchRateLimit = createRateLimiter({
   windowMs: 10 * 60 * 1000,
@@ -2719,7 +2748,7 @@ app.post('/api/me/notifications/read', requireLogin, (req, res) => {
   res.json({ ok: true, changed, user });
 });
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', registerRateLimit, (req, res) => {
   try {
     const user = store.createUser({
       email: req.body && req.body.email,
@@ -2734,7 +2763,7 @@ app.post('/api/auth/register', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', loginRateLimit, (req, res) => {
   try {
     const user = store.authenticateUser(req.body && req.body.email, req.body && req.body.password);
     const session = store.createSession(user.id, SESSION_TTL_MS);
@@ -2793,6 +2822,41 @@ app.get('/api/admin/submission-users', requireAdmin, (req, res) => {
     res.json({ users: store.getAdminSubmissionUsers({ q, limit }), q });
   } catch (e) {
     sendError(res, e, 'submission users failed');
+  }
+});
+
+app.get('/api/admin/submission-requests', requireAdmin, (req, res) => {
+  try {
+    const status = String(req.query.status || 'pending').trim();
+    const limit = Math.max(1, Math.min(500, Number.parseInt(req.query.limit, 10) || 200));
+    res.json({ requests: store.getSubmissionRequests({ status, limit }), status });
+  } catch (e) {
+    sendError(res, e, 'submission requests failed');
+  }
+});
+
+app.post('/api/admin/submission-requests/:id/approve', requireAdmin, async (req, res) => {
+  try {
+    const result = await fetcher.approveSubmissionRequest(req.params.id, { adminUserId: req.user.id });
+    if (result.entry) {
+      await translateSubmittedTitle(result.entry);
+      queueSubmittedRewrite(result.entry);
+    }
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    sendError(res, e, 'approve submission request failed');
+  }
+});
+
+app.post('/api/admin/submission-requests/:id/reject', requireAdmin, (req, res) => {
+  try {
+    const request = fetcher.rejectSubmissionRequest(req.params.id, {
+      adminUserId: req.user.id,
+      reason: String(req.body && req.body.reason || '').trim(),
+    });
+    res.json({ ok: true, request });
+  } catch (e) {
+    sendError(res, e, 'reject submission request failed');
   }
 });
 
@@ -3014,11 +3078,8 @@ app.post('/api/submit-link', requireLogin, submitLinkRateLimit, submitLinkDailyR
   if (!url) return res.status(400).json({ error: '请填写要提交的链接' });
   try {
     const submitter = req.user;
-    const submitted = await fetcher.submitLink(url, submitter, { note });
-    await translateSubmittedTitle(submitted);
-    queueSubmittedRewrite(submitted);
-    const entry = fetcher.getEntryById(submitted.id, req.user) || submitted;
-    res.json({ entry });
+    const request = await fetcher.queueSubmittedLink(url, submitter, { note });
+    res.status(202).json({ pending: true, request });
   } catch (e) {
     sendError(res, e, 'submit link failed');
   }

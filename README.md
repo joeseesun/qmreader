@@ -148,7 +148,7 @@ HOST=127.0.0.1 PORT=3000 npm start
 - 用户在页面里配置的 AI provider/API key 保存在浏览器 localStorage，不写入 SQLite。
 - 文章对话、模型列表和连接测试会把用户 key 随请求发送到本站后端代理调用。
 - Base URL 必须是公开 `https://` 地址，服务端会拒绝本机和内网地址，降低 SSRF 风险。
-- 读者投稿必须登录；提交地址会经过 DNS/IP、端口、路径和重定向复核，拒绝内网、IP 字面量、探针接口与后台面板，并按账号限流。
+- 读者投稿必须登录，且先进入隔离审核队列；提交动作不会访问目标站，管理员通过后才执行 DNS/IP、端口、路径和重定向复核并抓取。系统拒绝内网、IP 字面量、探针接口与后台面板，限制每个账号最多 3 条待审记录，并对注册、登录和投稿限流。
 - 运行数据在 `data/qmreader.sqlite` 和 `data/cache.json`，默认不提交到 Git。
 - 公开贡献内容会显示在资产页、贡献者页、sitemap 和 RSS；不要在公开点评或对话里写私密信息。
 
@@ -214,7 +214,7 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 | GET | `/contributors` | 公开贡献者目录 |
 | GET | `/contributors/:id.xml` | 贡献者公开资产 RSS |
 | GET | `/llms.txt` | 站点定位、公开目录、RSS 和 sitemap 汇总 |
-| POST | `/api/submit-link` | 注册用户提交公开链接 |
+| POST | `/api/submit-link` | 注册用户提交链接到隔离审核队列，成功返回 202 |
 
 需要登录或管理员权限的接口包括提交链接、生成翻译/改写、发布点评、文章对话、刷新源、启用/禁用源和违规用户管理等。详见 `server.js` 路由。
 

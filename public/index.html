@@ -7,7 +7,7 @@
   <link rel="alternate" type="application/rss+xml" title="QMReader 公开资产 RSS" href="https://rss.qiaomu.ai/assets.xml" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="shortcut icon" href="/favicon.svg" />
-  <link rel="stylesheet" href="/styles.css?v=158" />
+  <link rel="stylesheet" href="/styles.css?v=159" />
   <meta name="description" content="围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。" />
   <link rel="canonical" href="https://rss.qiaomu.ai/" />
   <meta property="og:site_name" content="QMReader" />
@@ -476,6 +476,15 @@
         </section>
         <section id="admin-manage-status" class="manage-status"></section>
         <section id="admin-manage-list" class="manage-list admin-manage-list"></section>
+        <section class="admin-submission-panel" aria-labelledby="admin-review-title">
+          <header class="admin-submission-head">
+            <div>
+              <h2 id="admin-review-title">待审核投稿</h2>
+              <p>投稿在这里隔离，不会抓取或公开。审核通过后才访问目标站。</p>
+            </div>
+          </header>
+          <div id="admin-submission-requests" class="admin-review-list" role="list" aria-live="polite"></div>
+        </section>
         <section class="admin-submission-panel" aria-labelledby="admin-submission-title">
           <header class="admin-submission-head">
             <div>
@@ -769,6 +778,6 @@
 
   <script src="/purify.min.js?v=3.4.11"></script>
   <script src="/lucide-icons.js?v=2"></script>
-  <script src="/app.js?v=158"></script>
+  <script src="/app.js?v=159"></script>
 </body>
 </html>

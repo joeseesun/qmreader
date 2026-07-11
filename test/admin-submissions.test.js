@@ -75,6 +75,60 @@ test('admin page exposes an accessible user submission management workflow', () 
   assert.match(app, /async function deleteAdminUserSubmissions/);
   assert.match(app, /async function deleteAdminUser/);
   assert.match(app, /showConfirmDialog/);
+  assert.match(html, /待审核投稿/);
+  assert.match(app, /loadAdminSubmissionRequests/);
+  assert.match(app, /reviewAdminSubmissionRequest/);
+});
+
+test('submission requests stay quarantined until an administrator reviews them', () => {
+  const reader = store.createUser({ email: uniqueEmail('queue-reader'), password: 'password-123', displayName: 'queue reader' });
+  const admin = store.createUser({ email: uniqueEmail('queue-admin'), password: 'password-123', displayName: 'queue admin', role: 'admin' });
+  const queued = store.createSubmissionRequest({
+    url: 'https://example.com/queued-article',
+    userId: reader.id,
+    author: reader.displayName,
+    note: 'worth reading',
+  });
+  assert.equal(queued.status, 'pending');
+  assert.equal(store.getSubmissionRequests({ status: 'pending' }).length, 1);
+  assert.equal(store.getSubmittedEntries().some(item => item.link === queued.url), false);
+
+  const duplicate = store.createSubmissionRequest({
+    url: queued.url,
+    userId: reader.id,
+    author: reader.displayName,
+    note: 'duplicate',
+  });
+  assert.equal(duplicate.id, queued.id);
+  assert.equal(store.getSubmissionRequests({ status: 'pending' }).length, 1);
+
+  const rejected = store.reviewSubmissionRequest(queued.id, {
+    status: 'rejected',
+    reviewedBy: admin.id,
+    reason: 'not an article',
+  });
+  assert.equal(rejected.status, 'rejected');
+  assert.equal(rejected.reviewReason, 'not an article');
+  assert.equal(store.getSubmissionRequests({ status: 'pending' }).length, 0);
+});
+
+test('submission quarantine enforces a small durable pending quota per account', () => {
+  const reader = store.createUser({ email: uniqueEmail('quota-reader'), password: 'password-123', displayName: 'quota reader' });
+  for (let index = 0; index < 3; index += 1) {
+    store.createSubmissionRequest({
+      url: `https://example.com/quota-${index}`,
+      userId: reader.id,
+      author: reader.displayName,
+    });
+  }
+  assert.throws(
+    () => store.createSubmissionRequest({
+      url: 'https://example.com/quota-overflow',
+      userId: reader.id,
+      author: reader.displayName,
+    }),
+    error => error.statusCode === 429 && /待审核/.test(error.message)
+  );
 });
 
 async function login(baseUrl, email, password) {
@@ -141,6 +195,11 @@ test('moderation disables a non-admin user, revokes sessions, deletes submission
   saveSubmission('offender-entry-one', 'Offender one', offender);
   saveSubmission('offender-entry-two', 'Offender two', offender);
   const session = store.createSession(offender.id);
+  const pending = store.createSubmissionRequest({
+    url: 'https://example.com/offender-pending',
+    userId: offender.id,
+    author: offender.displayName,
+  });
   assert.equal(store.getUserBySessionToken(session.token).id, offender.id);
 
   const moderated = store.disableUserForModeration(offender.id, {
@@ -152,6 +211,7 @@ test('moderation disables a non-admin user, revokes sessions, deletes submission
   assert.equal(moderated.revokedSessionCount, 1);
   assert.equal(store.getUserBySessionToken(session.token), null);
   assert.equal(store.getEntry('offender-entry-one'), null);
+  assert.equal(store.getSubmissionRequest(pending.id).status, 'rejected');
   assert.throws(
     () => store.authenticateUser(offender.email, 'password-123'),
     error => error.statusCode === 403
@@ -203,6 +263,12 @@ test('admin API previews and deletes one reader submissions with permission and 
     const guardCookie = await login(baseUrl, guardUser.email, 'password-123');
     const adminMeResponse = await fetch(`${baseUrl}/api/me`, { headers: { Cookie: adminCookie } });
     const adminMe = (await adminMeResponse.json()).user;
+    const pendingRequest = store.createSubmissionRequest({
+      url: 'https://example.com/api-pending',
+      userId: guardUser.id,
+      author: guardUser.displayName,
+      note: 'review me',
+    });
 
     const anonymousSubmit = await fetch(`${baseUrl}/api/submit-link`, {
       method: 'POST',
@@ -210,12 +276,27 @@ test('admin API previews and deletes one reader submissions with permission and 
       body: '{}',
     });
     assert.equal(anonymousSubmit.status, 401);
+    const crossOriginSubmit = await fetch(`${baseUrl}/api/submit-link`, {
+      method: 'POST',
+      headers: { Cookie: readerCookie, Origin: 'https://evil.example', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/cross-origin' }),
+    });
+    assert.equal(crossOriginSubmit.status, 403);
     const registeredSubmit = await fetch(`${baseUrl}/api/submit-link`, {
       method: 'POST',
       headers: { Cookie: readerCookie, 'Content-Type': 'application/json' },
       body: '{}',
     });
     assert.equal(registeredSubmit.status, 400);
+    const quarantinedSubmit = await fetch(`${baseUrl}/api/submit-link`, {
+      method: 'POST',
+      headers: { Cookie: readerCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/quarantined-via-api', note: 'pending only' }),
+    });
+    assert.equal(quarantinedSubmit.status, 202);
+    const quarantined = await quarantinedSubmit.json();
+    assert.equal(quarantined.pending, true);
+    assert.equal(store.getSubmittedEntries().some(item => item.link === 'https://example.com/quarantined-via-api'), false);
     const blockedProbe = await fetch(`${baseUrl}/api/submit-link`, {
       method: 'POST',
       headers: { Cookie: guardCookie, 'Content-Type': 'application/json' },
@@ -242,6 +323,17 @@ test('admin API previews and deletes one reader submissions with permission and 
     assert.equal(anonymous.status, 403);
     const forbidden = await fetch(`${baseUrl}/api/admin/submission-users`, { headers: { Cookie: readerCookie } });
     assert.equal(forbidden.status, 403);
+
+    const pendingListResponse = await fetch(`${baseUrl}/api/admin/submission-requests`, { headers: { Cookie: adminCookie } });
+    assert.equal(pendingListResponse.status, 200);
+    assert.ok((await pendingListResponse.json()).requests.some(item => item.id === pendingRequest.id));
+    const rejectResponse = await fetch(`${baseUrl}/api/admin/submission-requests/${pendingRequest.id}/reject`, {
+      method: 'POST',
+      headers: { Cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'probe-like content' }),
+    });
+    assert.equal(rejectResponse.status, 200);
+    assert.equal((await rejectResponse.json()).request.status, 'rejected');
 
     const usersResponse = await fetch(`${baseUrl}/api/admin/submission-users?q=c`, { headers: { Cookie: adminCookie } });
     assert.equal(usersResponse.status, 200);
