@@ -7,6 +7,9 @@ const path = require('node:path');
 
 const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmreader-admin-submissions-'));
 process.env.QMREADER_DATA_DIR = testDataDir;
+delete process.env.ADMIN_EMAIL;
+delete process.env.ADMIN_PASSWORD;
+delete process.env.ADMIN_NAME;
 
 const store = require('../lib/store');
 
@@ -93,7 +96,7 @@ test('admin submission summaries and batch soft delete are scoped to one exact u
   saveSubmission('same-name-entry', 'Same name', sameName);
   saveSubmission('other-entry', 'Other', other);
 
-  const users = store.getAdminSubmissionUsers({ q: 'c', limit: 20 });
+  const users = store.getAdminSubmissionUsers({ q: 'reader-c', limit: 20 });
   assert.equal(users.length, 2);
   assert.deepEqual(users.map(item => item.userId).sort(), [readerC.id, sameName.id].sort());
   assert.equal(users.find(item => item.userId === readerC.id).activeSubmissionCount, 2);

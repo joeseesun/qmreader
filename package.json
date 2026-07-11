@@ -29,6 +29,7 @@
     "compression": "^1.8.1",
     "dompurify": "3.4.11",
     "express": "^4.19.2",
+    "iconv-lite": "^0.6.3",
     "rss-parser": "^3.13.0",
     "undici": "^7.28.0"
   },
