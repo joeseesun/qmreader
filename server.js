@@ -5,6 +5,7 @@ const { fork } = require('child_process');
 const compression = require('compression');
 const fetcher = require('./lib/fetcher');
 const deepseek = require('./lib/deepseek');
+const { requestAiConfig } = require('./lib/request-ai-config');
 const store = require('./lib/store');
 
 const app = express();
@@ -1978,19 +1979,6 @@ function requireLogin(req, res, next) {
 function requireAdmin(req, res, next) {
   if (req.user && req.user.role === 'admin') return next();
   res.status(403).json({ error: '需要管理员权限' });
-}
-
-function requestAiConfig(req) {
-  return {
-    apiKey: String(req.get('x-ai-key') || req.get('x-deepseek-key') || '').trim(),
-    provider: String(req.get('x-ai-provider') || 'deepseek').trim(),
-    providerName: String(req.get('x-ai-provider-name') || '').trim(),
-    providerType: String(req.get('x-ai-provider-type') || 'openai_compatible').trim(),
-    baseUrl: String(req.get('x-ai-base-url') || '').trim(),
-    model: String(req.get('x-ai-model') || '').trim(),
-    temperature: String(req.get('x-ai-temperature') || '').trim(),
-    maxTokens: String(req.get('x-ai-max-tokens') || '').trim(),
-  };
 }
 
 function requestAuthor(req) {

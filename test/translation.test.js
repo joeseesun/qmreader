@@ -209,6 +209,116 @@ test('finish_reason length rejects truncated model output', async () => {
   }
 });
 
+test('server-owned DeepSeek credentials ignore caller base URLs and force the official endpoint', () => {
+  const previous = {
+    key: process.env.DEEPSEEK_API_KEY,
+    baseUrl: process.env.DEEPSEEK_BASE_URL,
+    model: process.env.DEEPSEEK_MODEL,
+  };
+  process.env.DEEPSEEK_API_KEY = 'server-owned-test-key';
+  process.env.DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+  process.env.DEEPSEEK_MODEL = 'deepseek-v4-flash';
+  try {
+    const config = deepseek.getConfig({
+      provider: 'deepseek',
+      baseUrl: 'https://attacker.example/v1',
+      model: 'deepseek-v4-flash',
+    });
+    assert.equal(config.baseUrl, 'https://api.deepseek.com/v1');
+    assert.equal(config.model, 'deepseek-v4-flash');
+    assert.equal(config.usesServerDeepSeekKey, true);
+  } finally {
+    if (previous.key === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = previous.key;
+    if (previous.baseUrl === undefined) delete process.env.DEEPSEEK_BASE_URL;
+    else process.env.DEEPSEEK_BASE_URL = previous.baseUrl;
+    if (previous.model === undefined) delete process.env.DEEPSEEK_MODEL;
+    else process.env.DEEPSEEK_MODEL = previous.model;
+  }
+});
+
+test('server-owned DeepSeek credentials reject Pro and legacy model overrides', () => {
+  const previous = {
+    key: process.env.DEEPSEEK_API_KEY,
+    baseUrl: process.env.DEEPSEEK_BASE_URL,
+    model: process.env.DEEPSEEK_MODEL,
+  };
+  process.env.DEEPSEEK_API_KEY = 'server-owned-test-key';
+  process.env.DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+  process.env.DEEPSEEK_MODEL = 'deepseek-v4-flash';
+  try {
+    for (const model of ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']) {
+      assert.throws(
+        () => deepseek.getConfig({ provider: 'deepseek', model }),
+        /只允许使用 deepseek-v4-flash/
+      );
+    }
+  } finally {
+    if (previous.key === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = previous.key;
+    if (previous.baseUrl === undefined) delete process.env.DEEPSEEK_BASE_URL;
+    else process.env.DEEPSEEK_BASE_URL = previous.baseUrl;
+    if (previous.model === undefined) delete process.env.DEEPSEEK_MODEL;
+    else process.env.DEEPSEEK_MODEL = previous.model;
+  }
+});
+
+test('BYOK custom providers keep their caller-owned routing', () => {
+  const config = deepseek.getConfig({
+    apiKey: 'caller-owned-test-key',
+    provider: 'openai-compatible',
+    providerName: 'Caller gateway',
+    baseUrl: 'https://gateway.example/v1',
+    model: 'caller-model',
+  });
+  assert.equal(config.baseUrl, 'https://gateway.example/v1');
+  assert.equal(config.model, 'caller-model');
+  assert.equal(config.usesServerDeepSeekKey, false);
+});
+
+test('BYOK DeepSeek is also restricted to the official endpoint and V4 Flash', () => {
+  assert.throws(
+    () => deepseek.getConfig({
+      apiKey: 'caller-owned-test-key',
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-pro',
+    }),
+    /只允许使用 deepseek-v4-flash/
+  );
+  assert.throws(
+    () => deepseek.getConfig({
+      apiKey: 'caller-owned-test-key',
+      provider: 'deepseek',
+      baseUrl: 'https://gateway.example/v1',
+      model: 'deepseek-v4-flash',
+    }),
+    /只能请求 https:\/\/api\.deepseek\.com/
+  );
+});
+
+test('DeepSeek model discovery exposes V4 Flash only', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => new Response(JSON.stringify({
+    data: [
+      { id: 'deepseek-v4-flash' },
+      { id: 'deepseek-v4-pro' },
+      { id: 'deepseek-chat' },
+    ],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const result = await deepseek.listModels({
+      apiKey: 'caller-owned-test-key',
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-flash',
+    });
+    assert.deepEqual(result.models, ['deepseek-v4-flash']);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('5xx HTML responses are retried once', async () => {
   const originalFetch = global.fetch;
   let calls = 0;

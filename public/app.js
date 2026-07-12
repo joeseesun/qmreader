@@ -153,7 +153,7 @@ const AI_PROVIDER_PRESETS = [
     category: '国内大模型',
     baseUrl: 'https://api.deepseek.com/v1',
     defaultModel: DEFAULT_REWRITE_MODEL,
-    quickModels: [DEFAULT_REWRITE_MODEL, 'deepseek-chat', 'deepseek-reasoner'],
+    quickModels: [DEFAULT_REWRITE_MODEL],
     apiKeyUrl: 'https://platform.deepseek.com/api_keys',
     description: 'DeepSeek 官方接口',
     recommended: true,
@@ -1585,6 +1585,7 @@ function aiHeaderValue(value, fallback = '') {
 }
 
 function aiHeadersFromConfig(config) {
+  if (!String(config.apiKey || '').trim()) return {};
   return {
     'X-AI-Provider': aiHeaderValue(config.provider, 'custom'),
     'X-AI-Provider-Name': aiHeaderValue(config.providerName || config.profileName, config.provider || 'AI'),
