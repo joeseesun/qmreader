@@ -131,16 +131,18 @@ struct ChannelTimelineView: View {
             AppTheme.paper.ignoresSafeArea()
             content
 
-            if let message = store.toastMessage {
-                ToastBanner(message: message)
+            if let toast = store.toast {
+                ToastBanner(toast: toast)
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .navigationTitle(source.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(AppTheme.paper, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .animation(.easeOut(duration: 0.18), value: store.toast?.id)
         .task { await store.start() }
     }
 

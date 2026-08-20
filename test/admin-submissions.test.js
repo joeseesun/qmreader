@@ -112,6 +112,13 @@ test('submission requests stay quarantined until an administrator reviews them',
   assert.equal(store.getSubmissionRequests({ status: 'pending' }).length, 0);
 });
 
+test('submitted entries can be found by their exact URL for native de-duplication', () => {
+  const reader = store.createUser({ email: uniqueEmail('native-dedupe'), password: 'password-123', displayName: 'native reader' });
+  const saved = saveSubmission('native-dedupe-entry', 'Native dedupe', reader);
+  assert.equal(store.getSubmittedEntryByUrl(saved.link).id, saved.id);
+  assert.equal(store.getSubmittedEntryByUrl('https://example.com/not-saved'), null);
+});
+
 test('submission quarantine enforces a small durable pending quota per account', () => {
   const reader = store.createUser({ email: uniqueEmail('quota-reader'), password: 'password-123', displayName: 'quota reader' });
   for (let index = 0; index < 3; index += 1) {
@@ -276,6 +283,22 @@ test('admin API previews and deletes one reader submissions with permission and 
       body: '{}',
     });
     assert.equal(anonymousSubmit.status, 401);
+    const invalidNativeClient = await fetch(`${baseUrl}/api/links/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/native' }),
+    });
+    assert.equal(invalidNativeClient.status, 403);
+    const blockedNativeTarget = await fetch(`${baseUrl}/api/links/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-QMReader-Client': 'ios-native',
+        'X-QMReader-Device': 'c83f8fe1-f181-4ff2-b699-413e825f2ab6',
+      },
+      body: JSON.stringify({ url: 'http://127.0.0.1/private' }),
+    });
+    assert.equal(blockedNativeTarget.status, 400);
     const crossOriginSubmit = await fetch(`${baseUrl}/api/submit-link`, {
       method: 'POST',
       headers: { Cookie: readerCookie, Origin: 'https://evil.example', 'Content-Type': 'application/json' },

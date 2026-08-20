@@ -37,6 +37,7 @@ enum AppTheme {
 struct ContentView: View {
     @StateObject private var store = EntryStore()
     @EnvironmentObject private var library: LibraryState
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -44,12 +45,14 @@ struct ContentView: View {
                 AppTheme.paper.ignoresSafeArea()
                 content
 
-                if let message = store.toastMessage {
-                    ToastBanner(message: message)
+                if let toast = store.toast {
+                    ToastBanner(toast: toast)
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .animation(.easeOut(duration: 0.18), value: store.toast?.id)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Entry.self) { entry in
                 ReaderView(entry: entry, sourceName: store.sourceName(for: entry.sourceId))
@@ -58,6 +61,14 @@ struct ContentView: View {
         }
         .tint(AppTheme.accent)
         .task { await store.start() }
+        .onReceive(NotificationCenter.default.publisher(for: .readerLinkSubmitted)) { _ in
+            store.watchForPublishedContent()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await store.syncLatest() }
+            }
+        }
     }
 
     @ViewBuilder
@@ -89,7 +100,7 @@ struct ContentView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ListHeader(isRefreshing: store.isRefreshing, channels: store.channels, entries: store.entries) {
+                ListHeader(isRefreshing: store.isRefreshing, channels: store.channels, entries: store.entries) {
                         Task { await store.refresh() }
                     }
 
@@ -153,7 +164,7 @@ private struct ListHeader: View {
                 Text("QMREADER")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(0.8)
-                Text("0.3")
+                Text("0.4")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
@@ -255,8 +266,8 @@ struct EntryRow: View {
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
 
-                if !entry.displaySummary.isEmpty {
-                    Text(entry.displaySummary)
+                if !entry.listSummary.isEmpty {
+                    Text(entry.listSummary)
                         .font(.system(size: 14.5, weight: .regular))
                         .foregroundStyle(AppTheme.secondary)
                         .lineSpacing(3)
@@ -285,12 +296,13 @@ struct EntryRow: View {
 }
 
 struct ToastBanner: View {
-    let message: String
+    let toast: ToastPayload
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "wifi.exclamationmark")
-            Text(message).frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: toast.systemImage)
+                .foregroundStyle(AppTheme.accent)
+            Text(toast.message).frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.system(size: 14, weight: .medium))
         .foregroundStyle(AppTheme.ink)
@@ -302,7 +314,7 @@ struct ToastBanner: View {
                 .stroke(AppTheme.hairline, lineWidth: 0.5)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(message)
+        .accessibilityLabel(toast.message)
     }
 }
 

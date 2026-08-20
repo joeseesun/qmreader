@@ -5,6 +5,7 @@ struct ReaderView: View {
     @EnvironmentObject private var library: LibraryState
     @Environment(\.openURL) private var openURL
     @AppStorage("readerFontSize") private var fontSize = 17.0
+    @AppStorage("readerTypeface") private var typefaceRawValue = ReaderTypeface.pingFang.rawValue
     @State private var mode: ReaderMode
     @State private var blocks: [ArticleBlock] = []
     @State private var systemTranslationRequestID = 0
@@ -12,6 +13,9 @@ struct ReaderView: View {
     @State private var systemTranslationBlocks: [ArticleBlock] = []
     @State private var isSystemTranslating = false
     @State private var systemTranslationError: String?
+    @State private var toast: ToastPayload?
+    @State private var toastTask: Task<Void, Never>?
+    @State private var isSubmittingLink = false
 
     private let sourceName: String
 
@@ -22,23 +26,37 @@ struct ReaderView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             AppTheme.paper.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ReaderHeader(entry: model.entry, sourceName: sourceName, mode: mode, rewrite: model.rewrite)
+                    ReaderHeader(
+                        entry: model.entry,
+                        sourceName: sourceName,
+                        mode: mode,
+                        rewrite: model.rewrite,
+                        typeface: typeface
+                    )
 
                     content
                         .padding(.horizontal, 20)
                         .padding(.top, 28)
                         .padding(.bottom, 44)
-                        .frame(maxWidth: 680, alignment: .leading)
+                        .frame(maxWidth: 640, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
             .scrollIndicators(.hidden)
+
+            if let toast {
+                ToastBanner(toast: toast)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: toast?.id)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(AppTheme.paper, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
@@ -73,10 +91,12 @@ struct ReaderView: View {
                 isRead: library.readIDs.contains(model.entry.id),
                 isFavorite: library.favoriteIDs.contains(model.entry.id),
                 fontSize: fontSize,
+                typeface: typeface,
                 selectMode: selectMode,
                 toggleRead: { library.toggleRead(model.entry.id) },
                 toggleFavorite: { library.toggleFavorite(model.entry.id) },
-                setFontSize: { fontSize = $0 }
+                setFontSize: { fontSize = $0 },
+                setTypeface: { typefaceRawValue = $0.rawValue }
             )
         }
         .background {
@@ -145,7 +165,12 @@ struct ReaderView: View {
                 .foregroundStyle(AppTheme.secondary)
                 .padding(.bottom, 14)
             }
-            ArticleBlocksView(blocks: blocks, fontSize: fontSize)
+            ArticleBlocksView(
+                blocks: blocks,
+                fontSize: fontSize,
+                typeface: typeface,
+                onSubmitLink: submitLink
+            )
 
             if mode == .translation, let systemTranslationError {
                 Text("系统翻译暂不可用：\(systemTranslationError)")
@@ -161,6 +186,53 @@ struct ReaderView: View {
         case .original: "这篇文章暂时没有正文"
         case .translation: "本文还没有中文翻译"
         case .rewrite: "本文还没有乔木改写"
+        }
+    }
+
+    private var typeface: ReaderTypeface {
+        ReaderTypeface(rawValue: typefaceRawValue) ?? .pingFang
+    }
+
+    private func submitLink(_ url: URL) {
+        guard !isSubmittingLink else { return }
+        isSubmittingLink = true
+        showToast("正在加入…", icon: "arrow.down.doc")
+        Task {
+            defer { isSubmittingLink = false }
+            do {
+                let outcome = try await LinkSubmissionQueue.shared.submit(url)
+                switch outcome {
+                case .accepted:
+                    showToast("已加入，处理好会自动出现", icon: "checkmark.circle.fill")
+                    NotificationCenter.default.post(name: .readerLinkSubmitted, object: nil)
+                case .duplicate:
+                    showToast("这篇已经加入过了", icon: "checkmark.circle")
+                case .queuedOffline:
+                    showToast("已保存，联网后会自动加入", icon: "clock.arrow.circlepath")
+                }
+            } catch APIError.status(let code) {
+                let message: String
+                switch code {
+                case 400, 403: message = "这个链接暂时不能收录"
+                case 409: message = "这篇已经加入过了"
+                case 429: message = "今天加入得有点多，稍后再试"
+                case 503: message = "处理队列忙，稍后再试"
+                default: message = "这次没有加入成功，稍后再试"
+                }
+                showToast(message, icon: "exclamationmark.circle")
+            } catch {
+                showToast("这次没有加入成功，稍后再试", icon: "exclamationmark.circle")
+            }
+        }
+    }
+
+    private func showToast(_ message: String, icon: String) {
+        toastTask?.cancel()
+        toast = ToastPayload(message: message, systemImage: icon)
+        toastTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            toast = nil
         }
     }
 
@@ -234,6 +306,7 @@ private struct ReaderHeader: View {
     let sourceName: String
     let mode: ReaderMode
     let rewrite: RewriteAsset?
+    let typeface: ReaderTypeface
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -243,9 +316,9 @@ private struct ReaderHeader: View {
                 .padding(.bottom, 12)
 
             Text(entry.displayTitle)
-                .font(.system(size: 27, weight: .semibold))
+                .font(typeface.font(size: 26, weight: .semibold, relativeTo: .title))
                 .foregroundStyle(AppTheme.ink)
-                .lineSpacing(5)
+                .lineSpacing(6)
 
             if entry.displayTitle != entry.title {
                 Text(entry.title)
@@ -257,7 +330,7 @@ private struct ReaderHeader: View {
 
             Text(byline)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(mode == .rewrite ? AppTheme.accent : AppTheme.secondary)
+                .foregroundStyle(AppTheme.secondary)
                 .padding(.top, 12)
 
             Rectangle()
@@ -267,7 +340,7 @@ private struct ReaderHeader: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
-        .frame(maxWidth: 680, alignment: .leading)
+        .frame(maxWidth: 640, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -282,8 +355,7 @@ private struct ReaderHeader: View {
     private var byline: String {
         if mode == .rewrite {
             let author = rewrite?.createdBy ?? "向阳乔木"
-            let model = rewrite?.model ?? ""
-            return [author, "乔木改写", model].filter { !$0.isEmpty }.joined(separator: " · ")
+            return [author, "乔木改写"].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         return [entry.author ?? "", sourceName].filter { !$0.isEmpty }.joined(separator: " · ")
     }
@@ -296,14 +368,20 @@ private struct ReaderToolbar: View {
     let isRead: Bool
     let isFavorite: Bool
     let fontSize: Double
+    let typeface: ReaderTypeface
     let selectMode: (ReaderMode) -> Void
     let toggleRead: () -> Void
     let toggleFavorite: () -> Void
     let setFontSize: (Double) -> Void
+    let setTypeface: (ReaderTypeface) -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            toolbarButton(systemImage: isRead ? "circle.fill" : "circle", label: "切换已读状态", action: toggleRead)
+            toolbarButton(
+                systemImage: isRead ? "checkmark.circle.fill" : "checkmark.circle",
+                label: "切换已读状态",
+                action: toggleRead
+            )
             toolbarButton(systemImage: isFavorite ? "star.fill" : "star", label: "切换收藏", action: toggleFavorite)
 
             Menu {
@@ -320,9 +398,25 @@ private struct ReaderToolbar: View {
             .accessibilityLabel("切换原文、翻译或改写")
 
             Menu {
-                Button("小号") { setFontSize(15) }
-                Button("标准") { setFontSize(17) }
-                Button("大号") { setFontSize(19) }
+                Section("字号") {
+                    sizeButton("小", value: 15)
+                    sizeButton("标准", value: 17)
+                    sizeButton("大", value: 19)
+                    sizeButton("特大", value: 21)
+                }
+                Section("字体") {
+                    ForEach(ReaderTypeface.allCases) { candidate in
+                        Button {
+                            setTypeface(candidate)
+                        } label: {
+                            if typeface == candidate {
+                                Label(candidate.label, systemImage: "checkmark")
+                            } else {
+                                Text(candidate.label)
+                            }
+                        }
+                    }
+                }
             } label: {
                 Image(systemName: "textformat.size")
                     .font(.system(size: 18, weight: .regular))
@@ -361,6 +455,18 @@ private struct ReaderToolbar: View {
             }
         }
         .disabled(!enabled)
+    }
+
+    private func sizeButton(_ label: String, value: Double) -> some View {
+        Button {
+            setFontSize(value)
+        } label: {
+            if fontSize == value {
+                Label(label, systemImage: "checkmark")
+            } else {
+                Text(label)
+            }
+        }
     }
 }
 

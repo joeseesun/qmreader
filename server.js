@@ -157,6 +157,32 @@ const submitLinkDailyRateLimit = createRateLimiter({
   message: '每天最多收录 20 个链接，请明天再试',
   key: req => `user:${req.user && req.user.id || 'anonymous'}`,
 });
+const nativeLinkSubmitRateLimit = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  message: '每小时最多加入 6 个链接，请稍后再试',
+  key: req => `native:${req.ip || 'unknown'}:${String(req.get('X-QMReader-Device') || '').slice(0, 64)}`,
+});
+const nativeLinkSubmitDailyRateLimit = createRateLimiter({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 20,
+  message: '今天加入的链接有点多，请明天再试',
+  key: req => `native-day:${req.ip || 'unknown'}`,
+});
+const nativeLinkSubmitGlobalRateLimit = createRateLimiter({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 100,
+  message: '处理队列忙，请稍后再试',
+  key: () => 'native-global',
+});
+function requireNativeLinkClient(req, res, next) {
+  const client = String(req.get('X-QMReader-Client') || '').trim();
+  const deviceId = String(req.get('X-QMReader-Device') || '').trim().toLowerCase();
+  if (client !== 'ios-native' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+    return res.status(403).json({ error: '这个客户端暂时不能加入链接' });
+  }
+  return next();
+}
 const registerRateLimit = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -3119,6 +3145,31 @@ app.post('/api/submit-link', requireLogin, submitLinkRateLimit, submitLinkDailyR
     sendError(res, e, 'submit link failed');
   }
 });
+
+app.post(
+  '/api/links/submit',
+  requireNativeLinkClient,
+  nativeLinkSubmitRateLimit,
+  nativeLinkSubmitDailyRateLimit,
+  nativeLinkSubmitGlobalRateLimit,
+  async (req, res) => {
+    const url = String((req.body && req.body.url) || '').trim();
+    if (!url) return res.status(400).json({ error: '请填写要加入的链接' });
+    try {
+      const existing = fetcher.getSubmittedEntryByUrl(url);
+      if (existing) {
+        if (!rewriteResponse(existing)) queueSubmittedRewrite(existing);
+        return res.json({ accepted: true, duplicate: true, entryId: existing.id, status: 'processing' });
+      }
+      const entry = await fetcher.submitLink(url, { displayName: 'QMReader iOS' });
+      void translateSubmittedTitle(entry);
+      queueSubmittedRewrite(entry);
+      return res.status(202).json({ accepted: true, duplicate: false, entryId: entry.id, status: 'processing' });
+    } catch (e) {
+      return sendError(res, e, 'native link submit failed');
+    }
+  }
+);
 
 app.post('/api/entry/:id/content', originalFetchRateLimit, async (req, res) => {
   const entry = fetcher.getEntryById(req.params.id, req.user);

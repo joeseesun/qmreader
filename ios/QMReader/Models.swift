@@ -26,6 +26,45 @@ struct RefreshHint: Codable {
     let nextAllowedAt: Double?
 }
 
+enum RefreshPhase: Equatable {
+    case idle
+    case pulling
+    case triggered
+    case requesting
+    case queued
+    case processing
+    case published(Int)
+    case noChange
+    case offline
+    case error
+
+    var isWorking: Bool {
+        switch self {
+        case .pulling, .triggered, .requesting, .queued, .processing:
+            true
+        default:
+            false
+        }
+    }
+}
+
+struct ToastPayload: Equatable {
+    let id = UUID()
+    let message: String
+    let systemImage: String
+}
+
+struct LinkSubmissionResponse: Codable {
+    let accepted: Bool
+    let duplicate: Bool?
+    let entryId: String?
+    let status: String?
+}
+
+extension Notification.Name {
+    static let readerLinkSubmitted = Notification.Name("QMReader.readerLinkSubmitted")
+}
+
 struct SourceEntryPageResponse: Codable {
     let entries: [Entry]
     let hasMore: Bool
@@ -74,12 +113,37 @@ struct Entry: Codable, Hashable, Identifiable {
         summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    var listSummary: String {
+        if containsChinese(displaySummary) { return displaySummary }
+        guard let body = rewrite?.body else { return "" }
+        for paragraph in body.components(separatedBy: "\n\n") {
+            let raw = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
+            if raw.isEmpty || raw.hasPrefix("#") || raw.hasPrefix("![") { continue }
+            var value = raw
+                .replacingOccurrences(of: #"!\[[^\]]*\]\([^\)]+\)"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"\[([^\]]+)\]\([^\)]+\)"#, with: "$1", options: .regularExpression)
+                .replacingOccurrences(of: "**", with: "")
+                .replacingOccurrences(of: "__", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard value.count >= 20, containsChinese(value) else { continue }
+            if value.count > 180 { value = String(value.prefix(180)) + "…" }
+            return value
+        }
+        return ""
+    }
+
     var publishedDate: Date? {
         if let publishedTs, publishedTs > 0 {
             return Date(timeIntervalSince1970: publishedTs / 1_000)
         }
         guard let published else { return nil }
         return ISO8601DateFormatter().date(from: published)
+    }
+
+    private func containsChinese(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value) || (0x4E00...0x9FFF).contains(scalar.value)
+        }
     }
 }
 

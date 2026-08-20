@@ -18,22 +18,19 @@ final class EntryStore: ObservableObject {
     @Published private(set) var sources: [String: String] = [:]
     @Published private(set) var channels: [FeedSource] = []
     @Published private(set) var isRefreshing = false
+    @Published private(set) var refreshPhase: RefreshPhase = .idle
     @Published private(set) var errorMessage: String?
-    @Published var toastMessage: String?
+    @Published var toast: ToastPayload?
 
     private let api = APIClient.shared
     private let cache = DiskCache.shared
     private var hasLoaded = false
     private var toastTask: Task<Void, Never>?
+    private var backgroundRefreshTask: Task<Void, Never>?
 
     func start() async {
         guard !hasLoaded else { return }
         hasLoaded = true
-
-        // Paint a useful first frame immediately; disk and network data can replace it.
-        entries = SeedData.entries
-        sources = SeedData.sources
-        channels = SeedData.channels
 
         async let cachedEntries = cache.load(EntryListResponse.self, key: "entries.json")
         async let cachedSources = cache.load(SourceListResponse.self, key: "sources.json")
@@ -45,34 +42,79 @@ final class EntryStore: ObservableObject {
             channels = visibleSources
             sources = Dictionary(uniqueKeysWithValues: visibleSources.map { ($0.id, $0.name) })
         }
-        Task { [weak self] in
-            await self?.syncFromServer(showFailureToast: false)
+        if entries.isEmpty { isRefreshing = true }
+        let result = await syncFromServer(showFailureToast: false)
+        isRefreshing = false
+        if entries.isEmpty, let error = result.error {
+            errorMessage = friendlyError(error)
         }
+        Task { await LinkSubmissionQueue.shared.retryQueued() }
     }
 
     func refresh() async {
         guard !isRefreshing else { return }
+        backgroundRefreshTask?.cancel()
         isRefreshing = true
+        refreshPhase = .requesting
         errorMessage = nil
         defer { isRefreshing = false }
 
-        var hint: RefreshHint?
+        let baselineIDs = Set(entries.map(\.id))
+        async let immediateSync = syncFromServer(showFailureToast: false)
+        let hint: RefreshHint?
+        var hintError: Error?
         do {
             hint = try await api.refreshHint().refresh
         } catch {
-            showToast("源站更新请求失败，正在读取已有内容。")
+            hint = nil
+            hintError = error
+        }
+        let result = await immediateSync
+
+        let newCount = entries.reduce(into: 0) { count, entry in
+            if !baselineIDs.contains(entry.id) { count += 1 }
+        }
+        if newCount > 0 {
+            refreshPhase = .published(newCount)
+            showToast("有 \(newCount) 篇新文章", icon: "checkmark.circle.fill")
+            return
         }
 
-        if let hint {
-            showToast(refreshMessage(for: hint))
+        if let error = result.error ?? hintError {
+            refreshPhase = isConnectivityError(error) ? .offline : .error
+            showToast(
+                isConnectivityError(error) ? "现在没有网络，先看已保存的内容" : "这次没刷新成功，稍后再试",
+                icon: isConnectivityError(error) ? "wifi.slash" : "exclamationmark.circle"
+            )
+            if entries.isEmpty { errorMessage = friendlyError(error) }
+            return
         }
-        scheduleServerSync()
+
+        if let hint, hint.started == true || hint.running == true || hint.queued == true {
+            refreshPhase = hint.queued == true ? .queued : .processing
+            showToast("正在准备新内容，好了会自动出现", icon: "sparkles")
+            startBackgroundPolling(baselineIDs: baselineIDs)
+            return
+        }
+
+        refreshPhase = .noChange
+        showToast("已经是最新的", icon: "checkmark.circle")
+    }
+
+    func watchForPublishedContent() {
+        backgroundRefreshTask?.cancel()
+        refreshPhase = .processing
+        startBackgroundPolling(baselineIDs: Set(entries.map(\.id)))
+    }
+
+    func syncLatest() async {
+        _ = await syncFromServer(showFailureToast: false)
     }
 
     @discardableResult
-    private func syncFromServer(showFailureToast: Bool) async -> Bool {
+    private func syncFromServer(showFailureToast: Bool) async -> SyncResult {
         let sourcesTask = Task { try await api.sources() }
-        var contentLoadFailed = false
+        var syncError: Error?
 
         do {
             let entryResponse = try await api.entries()
@@ -80,9 +122,9 @@ final class EntryStore: ObservableObject {
             entries = visibleResponse.entries
             await cache.save(visibleResponse, key: "entries.json")
         } catch {
-            contentLoadFailed = true
+            syncError = error
             if showFailureToast {
-                showToast("刷新失败，正在展示已缓存内容。")
+                showToast("这次没刷新成功，先看已保存的内容", icon: "exclamationmark.circle")
             }
         }
 
@@ -94,14 +136,37 @@ final class EntryStore: ObservableObject {
             await cache.save(visibleResponse, key: "sources.json")
         }
 
-        return contentLoadFailed
+        return SyncResult(error: syncError)
     }
 
-    private func scheduleServerSync() {
-        Task { [weak self] in
-            await self?.syncFromServer(showFailureToast: false)
-            try? await Task.sleep(for: .seconds(10))
-            await self?.syncFromServer(showFailureToast: false)
+    private func startBackgroundPolling(baselineIDs: Set<String>) {
+        backgroundRefreshTask = Task { [weak self] in
+            let delays: [Duration] = [
+                .seconds(8), .seconds(8), .seconds(12), .seconds(15), .seconds(20),
+                .seconds(30), .seconds(45), .seconds(60), .seconds(60), .seconds(60),
+                .seconds(60), .seconds(60), .seconds(60), .seconds(60), .seconds(60),
+            ]
+            for delay in delays {
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self else { return }
+                let result = await self.syncFromServer(showFailureToast: false)
+                let newCount = self.entries.reduce(into: 0) { count, entry in
+                    if !baselineIDs.contains(entry.id) { count += 1 }
+                }
+                if newCount > 0 {
+                    self.refreshPhase = .published(newCount)
+                    self.showToast("有 \(newCount) 篇新文章", icon: "checkmark.circle.fill")
+                    return
+                }
+                if let error = result.error, self.isConnectivityError(error) {
+                    self.refreshPhase = .offline
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self?.refreshPhase = .noChange
+            self?.showToast("还在处理，下次打开会自动检查", icon: "clock.arrow.circlepath")
         }
     }
 
@@ -109,25 +174,27 @@ final class EntryStore: ObservableObject {
         sources[id] ?? id.replacingOccurrences(of: "-", with: " ")
     }
 
-    private func showToast(_ message: String) {
+    private func showToast(_ message: String, icon: String) {
         toastTask?.cancel()
-        toastMessage = message
+        toast = ToastPayload(message: message, systemImage: icon)
         toastTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
-            self?.toastMessage = nil
+            self?.toast = nil
         }
     }
 
-    private func refreshMessage(for hint: RefreshHint) -> String {
-        if hint.started == true || hint.running == true {
-            return "源站更新已提交；乔木改写完成后才会出现在阅读流。"
-        }
-        if hint.skipped == "no stale sources" || hint.skipped == "cooldown" {
-            return "内容已是最新。"
-        }
-        return "已检查源站更新。"
+    private func friendlyError(_ error: Error) -> String {
+        isConnectivityError(error) ? "现在没有网络，先检查网络后再试。" : "暂时无法载入文章，请稍后再试。"
     }
+
+    private func isConnectivityError(_ error: Error) -> Bool {
+        error is URLError || (error as NSError).domain == NSURLErrorDomain
+    }
+}
+
+private struct SyncResult {
+    let error: Error?
 }
 
 @MainActor
@@ -136,8 +203,9 @@ final class ChannelHistoryStore: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var hasMore = false
+    @Published private(set) var refreshPhase: RefreshPhase = .idle
     @Published private(set) var errorMessage: String?
-    @Published var toastMessage: String?
+    @Published var toast: ToastPayload?
 
     private let source: FeedSource
     private let api = APIClient.shared
@@ -145,6 +213,7 @@ final class ChannelHistoryStore: ObservableObject {
     private var nextCursor: String?
     private var hasStarted = false
     private var toastTask: Task<Void, Never>?
+    private var backgroundRefreshTask: Task<Void, Never>?
 
     init(source: FeedSource, seedEntries: [Entry]) {
         self.source = source
@@ -160,51 +229,99 @@ final class ChannelHistoryStore: ObservableObject {
             nextCursor = snapshot.nextCursor
         }
         Task { [weak self] in
-            await self?.syncFirstPage(showFailure: false)
+            _ = await self?.syncFirstPage(showFailure: false)
         }
     }
 
     func refresh() async {
         guard !isRefreshing else { return }
+        backgroundRefreshTask?.cancel()
         isRefreshing = true
+        refreshPhase = .requesting
         errorMessage = nil
         defer { isRefreshing = false }
 
-        var hint: RefreshHint?
+        let baselineIDs = Set(entries.map(\.id))
+        async let firstPageError = syncFirstPage(showFailure: false)
+        let hint: RefreshHint?
+        var hintError: Error?
         do {
             hint = try await api.sourceRefreshHint(id: source.id).refresh
         } catch {
-            showToast("源站更新请求失败，正在读取历史内容。")
+            hint = nil
+            hintError = error
+        }
+        let pageError = await firstPageError
+
+        let newCount = entries.filter { !baselineIDs.contains($0.id) }.count
+        if newCount > 0 {
+            refreshPhase = .published(newCount)
+            showToast("有 \(newCount) 篇新文章", icon: "checkmark.circle.fill")
+            return
         }
 
-        if let hint {
-            showToast(refreshMessage(for: hint))
+        if let error = pageError ?? hintError {
+            let offline = error is URLError || (error as NSError).domain == NSURLErrorDomain
+            refreshPhase = offline ? .offline : .error
+            showToast(
+                offline ? "现在没有网络，先看已保存的内容" : "这次没刷新成功，稍后再试",
+                icon: offline ? "wifi.slash" : "exclamationmark.circle"
+            )
+            return
         }
-        scheduleFirstPageSync()
+
+        if let hint, hint.started == true || hint.running == true || hint.queued == true {
+            refreshPhase = .processing
+            showToast("正在准备新内容，好了会自动出现", icon: "sparkles")
+            startFirstPagePolling(baselineIDs: baselineIDs)
+        } else if hint?.skipped == "source disabled" {
+            refreshPhase = .noChange
+            showToast("这个频道已暂停更新，历史内容仍可阅读", icon: "pause.circle")
+        } else {
+            refreshPhase = .noChange
+            showToast("已经是最新的", icon: "checkmark.circle")
+        }
     }
 
     @discardableResult
-    private func syncFirstPage(showFailure: Bool) async -> Bool {
+    private func syncFirstPage(showFailure: Bool) async -> Error? {
         do {
             let page = try await api.sourceEntries(id: source.id)
             entries = SourceVisibility.entries(page.entries)
             hasMore = page.hasMore
             nextCursor = page.nextCursor
             await saveSnapshot()
-            return false
+            return nil
         } catch {
             if showFailure, entries.isEmpty {
                 errorMessage = error.localizedDescription
             }
-            return true
+            return error
         }
     }
 
-    private func scheduleFirstPageSync() {
-        Task { [weak self] in
-            await self?.syncFirstPage(showFailure: false)
-            try? await Task.sleep(for: .seconds(10))
-            await self?.syncFirstPage(showFailure: false)
+    private func startFirstPagePolling(baselineIDs: Set<String>) {
+        backgroundRefreshTask = Task { [weak self] in
+            let delays: [Duration] = [
+                .seconds(8), .seconds(8), .seconds(12), .seconds(15), .seconds(20),
+                .seconds(30), .seconds(45), .seconds(60), .seconds(60), .seconds(60),
+                .seconds(60), .seconds(60), .seconds(60), .seconds(60), .seconds(60),
+            ]
+            for delay in delays {
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self else { return }
+                _ = await self.syncFirstPage(showFailure: false)
+                let newCount = self.entries.filter { !baselineIDs.contains($0.id) }.count
+                if newCount > 0 {
+                    self.refreshPhase = .published(newCount)
+                    self.showToast("有 \(newCount) 篇新文章", icon: "checkmark.circle.fill")
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self?.refreshPhase = .noChange
+            self?.showToast("还在处理，下次打开会自动检查", icon: "clock.arrow.circlepath")
         }
     }
 
@@ -234,27 +351,14 @@ final class ChannelHistoryStore: ObservableObject {
         )
     }
 
-    private func showToast(_ message: String) {
+    private func showToast(_ message: String, icon: String) {
         toastTask?.cancel()
-        toastMessage = message
+        toast = ToastPayload(message: message, systemImage: icon)
         toastTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
-            self?.toastMessage = nil
+            self?.toast = nil
         }
-    }
-
-    private func refreshMessage(for hint: RefreshHint) -> String {
-        if hint.skipped == "source disabled" {
-            return "此频道已暂停更新，历史内容仍可阅读。"
-        }
-        if hint.started == true || hint.running == true {
-            return "频道更新已提交；乔木改写完成后才会发布。"
-        }
-        if hint.skipped == "cooldown" {
-            return "频道刚刚更新过，当前已是最新。"
-        }
-        return "已检查频道更新。"
     }
 }
 
