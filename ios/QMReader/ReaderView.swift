@@ -202,7 +202,7 @@ struct ReaderView: View {
             }
         case .rewrite:
             blocks = model.rewrite.map { ContentParser.blocks(fromMarkdown: $0.body) }
-                ?? ContentParser.blocks(fromMarkdown: model.entry.displaySummary)
+                ?? []
         }
     }
 

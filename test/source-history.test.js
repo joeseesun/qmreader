@@ -68,8 +68,7 @@ test('rewrite-ready history publishes only entries with a completed rewrite', ()
   const page = store.getEntriesBySource('source-ready', { limit: 10, requireRewrite: true });
   assert.deepEqual(page.entries.map(item => item.id), ['ready-entry']);
   assert.deepEqual([...store.getRewriteReadyEntryIds(['ready-entry', 'raw-entry'])], ['ready-entry']);
-  assert.deepEqual(
-    store.getRewriteReadyEntries({ sourceIds: ['source-ready'], limit: 10 }).map(item => item.id),
-    ['ready-entry']
-  );
+  const readyEntries = store.getRewriteReadyEntries({ sourceIds: ['source-ready'], limit: 10 });
+  assert.deepEqual(readyEntries.map(item => item.id), ['ready-entry']);
+  assert.equal(readyEntries[0].rewrite.body, '这是完成后的乔木改写正文。');
 });

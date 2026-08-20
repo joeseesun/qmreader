@@ -96,7 +96,7 @@ actor APIClient {
         request.timeoutInterval = 6
         if let timeoutInterval { request.timeoutInterval = timeoutInterval }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("QMReader-iOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("QMReader-iOS/0.3.1", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
@@ -112,7 +112,7 @@ actor APIClient {
         request.httpBody = Data("{}".utf8)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("QMReader-iOS/0.3", forHTTPHeaderField: "User-Agent")
+        request.setValue("QMReader-iOS/0.3.1", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }

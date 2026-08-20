@@ -38,7 +38,8 @@ enum SeedData {
             content: nil,
             image: "https://substackcdn.com/image/fetch/$s_!s080!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fcfd75d2b-a766-43a8-a8f1-fb3270dac942_757x239.png",
             titleZh: "你最好的提示词藏在聊天记录里",
-            assets: EntryAssets(translation: false, rewrite: true)
+            assets: EntryAssets(translation: false, rewrite: true),
+            rewrite: nil
         ),
         Entry(
             id: "62b3c1e5cfcf4b197423e6d45fef5847",
@@ -52,7 +53,8 @@ enum SeedData {
             content: nil,
             image: nil,
             titleZh: nil,
-            assets: EntryAssets(translation: false, rewrite: false)
+            assets: EntryAssets(translation: false, rewrite: false),
+            rewrite: nil
         ),
         Entry(
             id: "cea041f6e4cf80c4cda764ad69d66394",
@@ -66,7 +68,8 @@ enum SeedData {
             content: nil,
             image: nil,
             titleZh: "全新 Calendly",
-            assets: EntryAssets(translation: false, rewrite: false)
+            assets: EntryAssets(translation: false, rewrite: false),
+            rewrite: nil
         ),
         Entry(
             id: "a729fc64f0138fbae5c91aacc201bc38",
@@ -80,7 +83,8 @@ enum SeedData {
             content: nil,
             image: "https://substackcdn.com/image/fetch/$s_!PjNe!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F3f937aaa-6316-4aba-aa70-203b509ade6a_1513x1515.png",
             titleZh: "突发：共和党因与大科技公司的关系而陷入恐慌",
-            assets: EntryAssets(translation: false, rewrite: true)
+            assets: EntryAssets(translation: false, rewrite: true),
+            rewrite: nil
         ),
         Entry(
             id: "c45b56a9314054a68aed288c8e221424",
@@ -94,7 +98,8 @@ enum SeedData {
             content: nil,
             image: nil,
             titleZh: "MiniMax 设计",
-            assets: EntryAssets(translation: false, rewrite: false)
+            assets: EntryAssets(translation: false, rewrite: false),
+            rewrite: nil
         ),
     ]
 }

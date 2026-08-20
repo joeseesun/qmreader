@@ -263,7 +263,7 @@ final class ReaderViewModel: ObservableObject {
     @Published private(set) var entry: Entry
     @Published private(set) var translation: TranslationAsset?
     @Published private(set) var rewrite: RewriteAsset?
-    @Published private(set) var isLoading = false
+    @Published private(set) var isLoading = true
     @Published private(set) var errorMessage: String?
 
     private let api = APIClient.shared
@@ -272,6 +272,7 @@ final class ReaderViewModel: ObservableObject {
 
     init(entry: Entry) {
         self.entry = entry
+        rewrite = entry.rewrite
     }
 
     func load() async {

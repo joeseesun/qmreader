@@ -63,6 +63,7 @@ struct Entry: Codable, Hashable, Identifiable {
     let image: String?
     let titleZh: String?
     let assets: EntryAssets?
+    let rewrite: RewriteAsset?
 
     var displayTitle: String {
         let translated = titleZh?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
