@@ -4,8 +4,12 @@ struct ReaderView: View {
     @StateObject private var model: ReaderViewModel
     @EnvironmentObject private var library: LibraryState
     @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("readerFontSize") private var fontSize = 17.0
     @AppStorage("readerTypeface") private var typefaceRawValue = ReaderTypeface.pingFang.rawValue
+    @AppStorage("readerLineHeight") private var lineHeightRawValue = ReaderLineHeight.comfortable.rawValue
+    @AppStorage("readerAppearance") private var appearanceRawValue = ReaderAppearance.system.rawValue
     @State private var mode: ReaderMode
     @State private var blocks: [ArticleBlock] = []
     @State private var systemTranslationRequestID = 0
@@ -16,6 +20,9 @@ struct ReaderView: View {
     @State private var toast: ToastPayload?
     @State private var toastTask: Task<Void, Never>?
     @State private var isSubmittingLink = false
+    @State private var isShowingAppearance = false
+    @State private var isReaderToolbarVisible = true
+    @State private var scrollDecisionOffset: CGFloat = 0
 
     private let sourceName: String
 
@@ -27,16 +34,25 @@ struct ReaderView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            AppTheme.paper.ignoresSafeArea()
+            palette.paper.ignoresSafeArea()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ReaderScrollOffsetKey.self,
+                            value: proxy.frame(in: .named("readerScroll")).minY
+                        )
+                    }
+                    .frame(height: 0)
+
                     ReaderHeader(
                         entry: model.entry,
                         sourceName: sourceName,
                         mode: mode,
                         rewrite: model.rewrite,
-                        typeface: typeface
+                        typeface: typeface,
+                        palette: palette
                     )
 
                     content
@@ -48,6 +64,7 @@ struct ReaderView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .modifier(ReaderScrollTrackingModifier(update: updateToolbarVisibility))
 
             if let toast {
                 ToastBanner(toast: toast)
@@ -58,7 +75,7 @@ struct ReaderView: View {
         }
         .animation(.easeOut(duration: 0.18), value: toast?.id)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(AppTheme.paper, for: .navigationBar)
+        .toolbarBackground(palette.paper, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -84,21 +101,26 @@ struct ReaderView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ReaderToolbar(
-                mode: mode,
-                hasTranslation: model.translation != nil || supportsSystemTranslation,
-                hasRewrite: model.rewrite != nil,
-                isRead: library.readIDs.contains(model.entry.id),
-                isFavorite: library.favoriteIDs.contains(model.entry.id),
-                fontSize: fontSize,
-                typeface: typeface,
-                selectMode: selectMode,
-                toggleRead: { library.toggleRead(model.entry.id) },
-                toggleFavorite: { library.toggleFavorite(model.entry.id) },
-                setFontSize: { fontSize = $0 },
-                setTypeface: { typefaceRawValue = $0.rawValue }
-            )
+            if isReaderToolbarVisible {
+                ReaderToolbar(
+                    mode: mode,
+                    hasTranslation: model.translation != nil || supportsSystemTranslation,
+                    hasRewrite: model.rewrite != nil,
+                    isRead: library.readIDs.contains(model.entry.id),
+                    isFavorite: library.favoriteIDs.contains(model.entry.id),
+                    palette: palette,
+                    selectMode: selectMode,
+                    toggleRead: { library.toggleRead(model.entry.id) },
+                    toggleFavorite: { library.toggleFavorite(model.entry.id) },
+                    showAppearance: {
+                        isReaderToolbarVisible = true
+                        isShowingAppearance = true
+                    }
+                )
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isReaderToolbarVisible)
         .background {
             if #available(iOS 18.0, *) {
                 SystemTranslationBridge(
@@ -128,12 +150,29 @@ struct ReaderView: View {
             normalizeMode(preferRewrite: true)
             rebuildBlocks()
         }
+        .sheet(isPresented: $isShowingAppearance) {
+            ReaderAppearanceSheet(
+                fontSize: fontSize,
+                typeface: typeface,
+                lineHeight: lineHeight,
+                appearance: appearance,
+                palette: palette,
+                setFontSize: { fontSize = $0 },
+                setTypeface: { typefaceRawValue = $0.rawValue },
+                setLineHeight: { lineHeightRawValue = $0.rawValue },
+                setAppearance: { appearanceRawValue = $0.rawValue }
+            )
+            .presentationDetents([.height(452), .medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(palette.paper)
+        }
+        .preferredColorScheme(appearance.preferredColorScheme)
     }
 
     @ViewBuilder
     private var content: some View {
         if model.isLoading, blocks.isEmpty {
-            ReaderSkeleton()
+            ReaderSkeleton(palette: palette)
         } else if let error = model.errorMessage, blocks.isEmpty {
             StatusView(
                 systemImage: "wifi.exclamationmark",
@@ -162,20 +201,22 @@ struct ReaderView: View {
                     Text(isSystemTranslating ? "正在使用系统翻译…" : "机器翻译 · 仅供参考")
                 }
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppTheme.secondary)
+                .foregroundStyle(palette.meta)
                 .padding(.bottom, 14)
             }
             ArticleBlocksView(
                 blocks: blocks,
                 fontSize: fontSize,
                 typeface: typeface,
+                lineHeight: lineHeight,
+                palette: palette,
                 onSubmitLink: submitLink
             )
 
             if mode == .translation, let systemTranslationError {
                 Text("系统翻译暂不可用：\(systemTranslationError)")
                     .font(.system(size: 12))
-                    .foregroundStyle(AppTheme.secondary)
+                    .foregroundStyle(palette.meta)
                     .padding(.top, 18)
             }
         }
@@ -191,6 +232,31 @@ struct ReaderView: View {
 
     private var typeface: ReaderTypeface {
         ReaderTypeface(rawValue: typefaceRawValue) ?? .pingFang
+    }
+
+    private var lineHeight: ReaderLineHeight {
+        ReaderLineHeight(rawValue: lineHeightRawValue) ?? .comfortable
+    }
+
+    private var appearance: ReaderAppearance {
+        ReaderAppearance(rawValue: appearanceRawValue) ?? .system
+    }
+
+    private var palette: ReaderPalette {
+        ReaderPalette.resolve(appearance: appearance, systemScheme: systemColorScheme)
+    }
+
+    private func updateToolbarVisibility(_ offset: CGFloat) {
+        if offset >= -20 {
+            scrollDecisionOffset = offset
+            isReaderToolbarVisible = true
+            return
+        }
+
+        let change = offset - scrollDecisionOffset
+        guard abs(change) >= 28 else { return }
+        isReaderToolbarVisible = change > 0
+        scrollDecisionOffset = offset
     }
 
     private func submitLink(_ url: URL) {
@@ -301,40 +367,73 @@ struct ReaderView: View {
     }
 }
 
+private struct ReaderScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct ReaderScrollTrackingModifier: ViewModifier {
+    let update: (CGFloat) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                -geometry.contentOffset.y
+            } action: { _, offset in
+                update(offset)
+            }
+        } else {
+            content
+                .coordinateSpace(name: "readerScroll")
+                .onPreferenceChange(ReaderScrollOffsetKey.self, perform: update)
+        }
+    }
+}
+
 private struct ReaderHeader: View {
     let entry: Entry
     let sourceName: String
     let mode: ReaderMode
     let rewrite: RewriteAsset?
     let typeface: ReaderTypeface
+    let palette: ReaderPalette
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(dateLabel)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppTheme.secondary)
+                .foregroundStyle(palette.meta)
                 .padding(.bottom, 12)
 
             Text(entry.displayTitle)
                 .font(typeface.font(size: 26, weight: .semibold, relativeTo: .title))
-                .foregroundStyle(AppTheme.ink)
-                .lineSpacing(6)
+                .foregroundStyle(palette.ink)
+                .lineSpacing(ReaderTypography.scaled(
+                    6,
+                    textStyle: .title1,
+                    dynamicTypeSize: dynamicTypeSize
+                ))
 
             if entry.displayTitle != entry.title {
                 Text(entry.title)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(AppTheme.secondary)
+                    .foregroundStyle(palette.secondary)
                     .lineSpacing(3)
                     .padding(.top, 8)
             }
 
             Text(byline)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(AppTheme.secondary)
+                .foregroundStyle(palette.secondary)
                 .padding(.top, 12)
 
             Rectangle()
-                .fill(AppTheme.hairline)
+                .fill(palette.hairline)
                 .frame(height: 0.5)
                 .padding(.top, 20)
         }
@@ -367,13 +466,11 @@ private struct ReaderToolbar: View {
     let hasRewrite: Bool
     let isRead: Bool
     let isFavorite: Bool
-    let fontSize: Double
-    let typeface: ReaderTypeface
+    let palette: ReaderPalette
     let selectMode: (ReaderMode) -> Void
     let toggleRead: () -> Void
     let toggleFavorite: () -> Void
-    let setFontSize: (Double) -> Void
-    let setTypeface: (ReaderTypeface) -> Void
+    let showAppearance: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -391,45 +488,25 @@ private struct ReaderToolbar: View {
             } label: {
                 Text("译")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(AppTheme.ink)
+                    .foregroundStyle(palette.ink)
                     .frame(maxWidth: .infinity, minHeight: 49)
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("切换原文、翻译或改写")
 
-            Menu {
-                Section("字号") {
-                    sizeButton("小", value: 15)
-                    sizeButton("标准", value: 17)
-                    sizeButton("大", value: 19)
-                    sizeButton("特大", value: 21)
-                }
-                Section("字体") {
-                    ForEach(ReaderTypeface.allCases) { candidate in
-                        Button {
-                            setTypeface(candidate)
-                        } label: {
-                            if typeface == candidate {
-                                Label(candidate.label, systemImage: "checkmark")
-                            } else {
-                                Text(candidate.label)
-                            }
-                        }
-                    }
-                }
-            } label: {
+            Button(action: showAppearance) {
                 Image(systemName: "textformat.size")
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(AppTheme.ink)
+                    .foregroundStyle(palette.ink)
                     .frame(maxWidth: .infinity, minHeight: 49)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("调整正文字号，当前 \(Int(fontSize)) 点")
+            .accessibilityLabel("调整阅读外观")
         }
         .frame(height: 49)
-        .background(AppTheme.paper)
+        .background(palette.paper)
         .overlay(alignment: .top) {
-            Rectangle().fill(AppTheme.hairline).frame(height: 0.5)
+            Rectangle().fill(palette.hairline).frame(height: 0.5)
         }
     }
 
@@ -437,7 +514,7 @@ private struct ReaderToolbar: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(systemImage == "star.fill" ? AppTheme.accent : AppTheme.ink)
+                .foregroundStyle(systemImage == "star.fill" ? palette.accent : palette.ink)
                 .frame(maxWidth: .infinity, minHeight: 49)
                 .contentShape(Rectangle())
         }
@@ -457,27 +534,179 @@ private struct ReaderToolbar: View {
         .disabled(!enabled)
     }
 
-    private func sizeButton(_ label: String, value: Double) -> some View {
-        Button {
+}
+
+private struct ReaderAppearanceSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var systemColorScheme
+
+    let fontSize: Double
+    let typeface: ReaderTypeface
+    let lineHeight: ReaderLineHeight
+    let appearance: ReaderAppearance
+    let palette: ReaderPalette
+    let setFontSize: (Double) -> Void
+    let setTypeface: (ReaderTypeface) -> Void
+    let setLineHeight: (ReaderLineHeight) -> Void
+    let setAppearance: (ReaderAppearance) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack {
+                    Text("阅读外观")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(palette.ink)
+                    Spacer()
+                    Button("完成") { dismiss() }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                }
+
+                settingSection("字号") {
+                    HStack(spacing: 8) {
+                        sizeChoice("小", value: 15)
+                        sizeChoice("标准", value: 17)
+                        sizeChoice("大", value: 19)
+                        sizeChoice("特大", value: 21)
+                    }
+                }
+
+                settingSection("字体") {
+                    HStack(spacing: 8) {
+                        ForEach(ReaderTypeface.allCases) { candidate in
+                            choiceButton(candidate.label, selected: typeface == candidate) {
+                                setTypeface(candidate)
+                            }
+                            .font(candidate.font(size: 15, weight: .medium, relativeTo: .callout))
+                        }
+                    }
+                }
+
+                settingSection("行距") {
+                    HStack(spacing: 8) {
+                        ForEach(ReaderLineHeight.allCases) { candidate in
+                            choiceButton(candidate.label, selected: lineHeight == candidate) {
+                                setLineHeight(candidate)
+                            }
+                        }
+                    }
+                }
+
+                settingSection("背景") {
+                    HStack(spacing: 8) {
+                        ForEach(ReaderAppearance.allCases) { candidate in
+                            appearanceChoice(candidate)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 22)
+        }
+        .scrollIndicators(.hidden)
+        .background(palette.paper)
+    }
+
+    private func settingSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(palette.meta)
+            content()
+        }
+    }
+
+    private func sizeChoice(_ label: String, value: Double) -> some View {
+        choiceButton(label, selected: fontSize == value) {
             setFontSize(value)
+        }
+    }
+
+    private func choiceButton(
+        _ label: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(selected ? palette.accent : palette.ink)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .background(
+                    selected ? palette.accent.opacity(0.12) : palette.quoteFill,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(selected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func appearanceChoice(_ candidate: ReaderAppearance) -> some View {
+        let sample = ReaderPalette.resolve(appearance: candidate, systemScheme: systemColorScheme)
+        let paperSample = ReaderPalette.resolve(appearance: .paper, systemScheme: .light)
+        let nightSample = ReaderPalette.resolve(appearance: .night, systemScheme: .dark)
+        let swatchColors = candidate == .system
+            ? [paperSample.paper, nightSample.paper]
+            : [sample.paper, sample.paper]
+        return Button {
+            setAppearance(candidate)
         } label: {
-            if fontSize == value {
-                Label(label, systemImage: "checkmark")
-            } else {
-                Text(label)
+            VStack(spacing: 5) {
+                Circle()
+                    .fill(LinearGradient(
+                        colors: swatchColors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 25, height: 25)
+                    .overlay {
+                        Circle().stroke(sample.ink.opacity(0.28), lineWidth: 0.75)
+                    }
+                    .overlay {
+                        if appearance == candidate {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(sample.accent)
+                        }
+                    }
+                Text(candidate.label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(appearance == candidate ? palette.accent : palette.ink)
+            }
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(
+                appearance == candidate ? palette.accent.opacity(0.10) : palette.quoteFill,
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(appearance == candidate ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
             }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(candidate.label)背景")
+        .accessibilityAddTraits(appearance == candidate ? .isSelected : [])
     }
 }
 
 private struct ReaderSkeleton: View {
+    let palette: ReaderPalette
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            RoundedRectangle(cornerRadius: 3).fill(AppTheme.placeholder).frame(height: 16)
-            RoundedRectangle(cornerRadius: 3).fill(AppTheme.placeholder).frame(height: 16)
-            RoundedRectangle(cornerRadius: 3).fill(AppTheme.placeholder).frame(width: 230, height: 16)
-            RoundedRectangle(cornerRadius: 3).fill(AppTheme.placeholder).frame(height: 16).padding(.top, 10)
-            RoundedRectangle(cornerRadius: 3).fill(AppTheme.placeholder).frame(width: 270, height: 16)
+            RoundedRectangle(cornerRadius: 3).fill(palette.placeholder).frame(height: 16)
+            RoundedRectangle(cornerRadius: 3).fill(palette.placeholder).frame(height: 16)
+            RoundedRectangle(cornerRadius: 3).fill(palette.placeholder).frame(width: 230, height: 16)
+            RoundedRectangle(cornerRadius: 3).fill(palette.placeholder).frame(height: 16).padding(.top, 10)
+            RoundedRectangle(cornerRadius: 3).fill(palette.placeholder).frame(width: 270, height: 16)
         }
     }
 }

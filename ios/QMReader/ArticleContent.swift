@@ -29,40 +29,17 @@ enum ArticleBlock: Identifiable {
     }
 }
 
-enum ReaderTypeface: String, CaseIterable, Identifiable {
-    case pingFang
-    case songti
-    case kaiti
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .pingFang: "苹方"
-        case .songti: "宋体"
-        case .kaiti: "楷体"
-        }
-    }
-
-    func font(size: CGFloat, weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
-        guard self != .pingFang else { return .system(size: size, weight: weight) }
-        let name: String
-        switch self {
-        case .songti: name = weight == .semibold || weight == .bold ? "STSongti-SC-Bold" : "STSongti-SC-Regular"
-        case .kaiti: name = weight == .semibold || weight == .bold ? "STKaitiSC-Bold" : "STKaitiSC-Regular"
-        case .pingFang: name = "PingFangSC-Regular"
-        }
-        guard UIFont(name: name, size: size) != nil else { return .system(size: size, weight: weight) }
-        return .custom(name, size: size, relativeTo: style)
-    }
-}
-
 enum ContentParser {
     static func blocks(fromHTML html: String) -> [ArticleBlock] {
         guard !html.isEmpty else { return [] }
         var markdown = html
         markdown = replace(markdown, pattern: "(?is)<pre[^>]*>(.*?)</pre>", template: "\n```\n$1\n```\n")
         markdown = replace(markdown, pattern: "(?is)</?code[^>]*>", template: "")
+        markdown = replace(
+            markdown,
+            pattern: "(?is)<figure[^>]*>.*?<img[^>]*?src=[\"']([^\"']+)[\"'][^>]*>.*?<figcaption[^>]*>(.*?)</figcaption>.*?</figure>",
+            template: "\n![$2]($1)\n"
+        )
         markdown = replace(markdown, pattern: "(?is)<img[^>]*?src=[\"']([^\"']+)[\"'][^>]*>", template: "\n![]($1)\n")
         markdown = replace(markdown, pattern: "(?is)<h1[^>]*>(.*?)</h1>", template: "\n# $1\n")
         markdown = replace(markdown, pattern: "(?is)<h2[^>]*>(.*?)</h2>", template: "\n## $1\n")
@@ -222,12 +199,16 @@ struct ArticleBlocksView: View {
     let blocks: [ArticleBlock]
     let fontSize: CGFloat
     let typeface: ReaderTypeface
+    let lineHeight: ReaderLineHeight
+    let palette: ReaderPalette
     var onSubmitLink: ((URL) -> Void)?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 16) {
-            ForEach(blocks) { block in
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
                 blockView(block)
+                    .padding(.top, spacingBefore(block, previous: index == 0 ? nil : blocks[index - 1]))
             }
         }
     }
@@ -236,65 +217,131 @@ struct ArticleBlocksView: View {
     private func blockView(_ block: ArticleBlock) -> some View {
         switch block {
         case .heading(_, let level, let text):
+            let size = headingSize(level: level)
             Text(text)
                 .font(typeface.font(
-                    size: level == 1 ? fontSize + 5 : level == 2 ? fontSize + 3 : fontSize + 1.5,
+                    size: size,
                     weight: .semibold,
-                    relativeTo: .headline
+                    relativeTo: level == 1 ? .title3 : .headline
                 ))
-                .foregroundStyle(AppTheme.ink)
-                .lineSpacing(4)
-                .padding(.top, level == 1 ? 20 : level == 2 ? 14 : 8)
+                .foregroundStyle(palette.ink)
+                .lineSpacing(ReaderTypography.headingLineSpacing(fontSize: size, dynamicTypeSize: dynamicTypeSize))
                 .textSelection(.enabled)
         case .paragraph(_, let text):
             articleText(
                 text,
                 font: typeface.font(size: fontSize),
-                color: AppTheme.ink,
-                lineSpacing: round(fontSize * 0.58)
+                color: palette.ink,
+                lineSpacing: bodyLineSpacing
             )
         case .bullet(_, let text):
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Circle().fill(AppTheme.ink).frame(width: 4, height: 4)
+            HStack(alignment: .top, spacing: 10) {
+                Circle()
+                    .fill(palette.ink.opacity(0.82))
+                    .frame(width: 4, height: 4)
+                    .padding(.top, ReaderTypography.scaled(
+                        fontSize * 0.62,
+                        textStyle: .body,
+                        dynamicTypeSize: dynamicTypeSize
+                    ))
                 articleText(
                     text,
                     font: typeface.font(size: fontSize),
-                    color: AppTheme.ink,
-                    lineSpacing: fontSize * 0.58
+                    color: palette.ink,
+                    lineSpacing: bodyLineSpacing
                 )
             }
         case .quote(_, let text):
             articleText(
                 text,
-                font: typeface.font(size: fontSize - 0.5),
-                color: AppTheme.secondary,
-                lineSpacing: round(fontSize * 0.58)
+                font: typeface.font(size: fontSize),
+                color: palette.secondary,
+                lineSpacing: bodyLineSpacing
             )
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppTheme.placeholder.opacity(0.72), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(palette.quoteFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         case .image(_, let url, let alt):
             VStack(spacing: 8) {
-                CachedRemoteImage(url: url)
+                CachedRemoteImage(url: url, placeholderColor: palette.placeholder)
+                    .frame(maxHeight: 520)
                 if !alt.isEmpty {
                     Text(alt)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(AppTheme.secondary)
+                        .font(typeface.font(size: 12.5, relativeTo: .caption))
+                        .foregroundStyle(palette.meta)
+                        .lineSpacing(3)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
         case .code(_, let text):
             ScrollView(.horizontal) {
                 Text(text)
-                    .font(.system(size: fontSize - 1.5, design: .monospaced))
-                    .foregroundStyle(AppTheme.ink)
-                    .padding(14)
+                    .font(.system(size: max(13, fontSize - 2.5), design: .monospaced))
+                    .foregroundStyle(palette.ink)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                     .fixedSize(horizontal: true, vertical: false)
                     .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.placeholder, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(palette.codeFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(palette.codeBorder, lineWidth: 0.5)
+            }
+        }
+    }
+
+    private var bodyLineSpacing: CGFloat {
+        ReaderTypography.bodyLineSpacing(
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            dynamicTypeSize: dynamicTypeSize
+        )
+    }
+
+    private func headingSize(level: Int) -> CGFloat {
+        switch level {
+        case 1: fontSize * 1.32
+        case 2: fontSize * 1.16
+        default: fontSize * 1.06
+        }
+    }
+
+    private func spacingBefore(_ block: ArticleBlock, previous: ArticleBlock?) -> CGFloat {
+        guard let previous else { return 0 }
+
+        switch block {
+        case .heading(_, let level, _):
+            return level == 1 ? 34 : level == 2 ? 28 : 22
+        default:
+            break
+        }
+
+        if isHeading(previous) { return 10 }
+        if isBullet(previous), isBullet(block) { return 8 }
+        if isBullet(block) { return 12 }
+        if isEmphasisBlock(previous) || isEmphasisBlock(block) { return 20 }
+        return 16
+    }
+
+    private func isHeading(_ block: ArticleBlock) -> Bool {
+        if case .heading = block { return true }
+        return false
+    }
+
+    private func isBullet(_ block: ArticleBlock) -> Bool {
+        if case .bullet = block { return true }
+        return false
+    }
+
+    private func isEmphasisBlock(_ block: ArticleBlock) -> Bool {
+        switch block {
+        case .quote, .image, .code: true
+        default: false
         }
     }
 
@@ -304,7 +351,7 @@ struct ArticleBlocksView: View {
             .font(font)
             .foregroundStyle(color)
             .lineSpacing(lineSpacing)
-            .tint(AppTheme.accent)
+            .tint(palette.accent)
         if linkItems(in: text).isEmpty {
             content.textSelection(.enabled)
         } else {
@@ -373,12 +420,19 @@ struct CachedRemoteImage: View {
     let url: URL
     var width: CGFloat?
     var height: CGFloat?
+    var placeholderColor: Color?
     @StateObject private var loader = RemoteImageLoader()
 
-    init(url: URL, width: CGFloat? = nil, height: CGFloat? = nil) {
+    init(
+        url: URL,
+        width: CGFloat? = nil,
+        height: CGFloat? = nil,
+        placeholderColor: Color? = nil
+    ) {
         self.url = url
         self.width = width
         self.height = height
+        self.placeholderColor = placeholderColor
     }
 
     var body: some View {
@@ -386,7 +440,7 @@ struct CachedRemoteImage: View {
             switch loader.state {
             case .loading:
                 RoundedRectangle(cornerRadius: width == nil ? 8 : 10, style: .continuous)
-                    .fill(AppTheme.placeholder)
+                    .fill(placeholderColor ?? AppTheme.placeholder)
                     .aspectRatio(width == nil ? 4 / 3 : 1, contentMode: .fit)
                     .frame(width: width, height: height)
             case .loaded(let image):

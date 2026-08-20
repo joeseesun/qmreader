@@ -17,6 +17,7 @@
 		010000000000000000000008 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000009 /* ReaderView.swift */; };
 		01000000000000000000000A /* SystemTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000B /* SystemTranslation.swift */; };
 		01000000000000000000000B /* ChannelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000C /* ChannelViews.swift */; };
+		01000000000000000000000C /* ReaderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000D /* ReaderSettings.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 		020000000000000000000009 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		02000000000000000000000B /* SystemTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTranslation.swift; sourceTree = "<group>"; };
 		02000000000000000000000C /* ChannelViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelViews.swift; sourceTree = "<group>"; };
+		02000000000000000000000D /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +65,7 @@
 				020000000000000000000007 /* EntryStore.swift */,
 				020000000000000000000008 /* ArticleContent.swift */,
 				020000000000000000000009 /* ReaderView.swift */,
+				02000000000000000000000D /* ReaderSettings.swift */,
 				02000000000000000000000B /* SystemTranslation.swift */,
 				02000000000000000000000C /* ChannelViews.swift */,
 				020000000000000000000004 /* Info.plist */,
@@ -156,6 +159,7 @@
 				010000000000000000000006 /* EntryStore.swift in Sources */,
 				010000000000000000000007 /* ArticleContent.swift in Sources */,
 				010000000000000000000008 /* ReaderView.swift in Sources */,
+				01000000000000000000000C /* ReaderSettings.swift in Sources */,
 				01000000000000000000000A /* SystemTranslation.swift in Sources */,
 				01000000000000000000000B /* ChannelViews.swift in Sources */,
 			);
@@ -287,14 +291,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QMReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.4.0;
+				MARKETING_VERSION = 0.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -311,14 +315,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QMReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.4.0;
+				MARKETING_VERSION = 0.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
