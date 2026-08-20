@@ -2691,8 +2691,9 @@ function scheduleFreshnessRefresh() {
 }
 
 app.get('/api/sources', (req, res) => {
+  const requireRewrite = req.query.ready === 'rewrite';
   res.json({
-    sources: fetcher.getSourcesMeta(),
+    sources: fetcher.getSourcesMeta({ requireRewrite }),
     refreshing,
     progress: refreshProgress,
     autoRewrite: { running: autoRewriteRunning, last: autoRewriteLast },
@@ -3027,13 +3028,14 @@ app.post('/api/ai/test', requireLogin, async (req, res) => {
 
 // List endpoint omits full content to keep the payload small; fetch it per-entry on open.
 app.get('/api/entries', (req, res) => {
-  const { source, category, q, limit } = req.query;
+  const { source, category, q, limit, ready } = req.query;
   const entries = fetcher.getEntries({
     sourceId: source || undefined,
     category: category || undefined,
     q: q || undefined,
     limit: limit ? parseInt(limit, 10) : undefined,
     viewer: req.user,
+    requireRewrite: ready === 'rewrite',
   }).map(({ content, ...rest }) => rest);
   res.json({ entries });
 });
@@ -3045,6 +3047,7 @@ app.get('/api/sources/:id/entries', (req, res) => {
     limit,
     cursor: String(req.query.cursor || ''),
     viewer: req.user,
+    requireRewrite: req.query.ready === 'rewrite',
   });
   if (!page) return res.status(404).json({ error: 'source not found' });
   res.json({

@@ -4,7 +4,7 @@ private enum SourceVisibility {
     static let hiddenIDs: Set<String> = ["hackernews"]
 
     static func entries(_ entries: [Entry]) -> [Entry] {
-        entries.filter { !hiddenIDs.contains($0.sourceId) }
+        entries.filter { !hiddenIDs.contains($0.sourceId) && $0.assets?.rewrite == true }
     }
 
     static func sources(_ sources: [FeedSource]) -> [FeedSource] {
@@ -121,7 +121,7 @@ final class EntryStore: ObservableObject {
 
     private func refreshMessage(for hint: RefreshHint) -> String {
         if hint.started == true || hint.running == true {
-            return "源站更新已提交；符合条件的新文章会后台自动改写。"
+            return "源站更新已提交；乔木改写完成后才会出现在阅读流。"
         }
         if hint.skipped == "no stale sources" || hint.skipped == "cooldown" {
             return "内容已是最新。"
@@ -155,7 +155,7 @@ final class ChannelHistoryStore: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
         if let snapshot = await cache.load(SourceHistorySnapshot.self, key: cacheKey) {
-            entries = snapshot.entries
+            entries = SourceVisibility.entries(snapshot.entries)
             hasMore = snapshot.hasMore
             nextCursor = snapshot.nextCursor
         }
@@ -187,7 +187,7 @@ final class ChannelHistoryStore: ObservableObject {
     private func syncFirstPage(showFailure: Bool) async -> Bool {
         do {
             let page = try await api.sourceEntries(id: source.id)
-            entries = page.entries
+            entries = SourceVisibility.entries(page.entries)
             hasMore = page.hasMore
             nextCursor = page.nextCursor
             await saveSnapshot()
@@ -215,7 +215,7 @@ final class ChannelHistoryStore: ObservableObject {
         do {
             let page = try await api.sourceEntries(id: source.id, cursor: nextCursor)
             var seen = Set(entries.map(\.id))
-            entries.append(contentsOf: page.entries.filter { seen.insert($0.id).inserted })
+            entries.append(contentsOf: SourceVisibility.entries(page.entries).filter { seen.insert($0.id).inserted })
             hasMore = page.hasMore
             self.nextCursor = page.nextCursor
             errorMessage = nil
@@ -249,7 +249,7 @@ final class ChannelHistoryStore: ObservableObject {
             return "此频道已暂停更新，历史内容仍可阅读。"
         }
         if hint.started == true || hint.running == true {
-            return "频道更新已提交；符合条件的新文章会后台自动改写。"
+            return "频道更新已提交；乔木改写完成后才会发布。"
         }
         if hint.skipped == "cooldown" {
             return "频道刚刚更新过，当前已是最新。"
@@ -288,25 +288,29 @@ final class ReaderViewModel: ObservableObject {
         if let response = await cachedTranslation { translation = response.translation }
         if let response = await cachedRewrite { rewrite = response.rewrite }
 
-        do {
-            async let detailRequest = api.entry(id: entry.id)
-            async let translationRequest = api.translation(id: entry.id)
-            async let rewriteRequest = api.rewrite(id: entry.id)
-            let (detail, translationResponse, rewriteResponse) = try await (
-                detailRequest,
-                translationRequest,
-                rewriteRequest
-            )
+        let detailTask = Task { try await api.entry(id: entry.id) }
+        let translationTask = Task { try await api.translation(id: entry.id) }
+        let rewriteTask = Task { try await api.rewrite(id: entry.id) }
+        var receivedRemoteContent = false
+
+        if let detail = try? await detailTask.value {
             entry = detail.entry
-            translation = translationResponse.translation
-            rewrite = rewriteResponse.rewrite
+            receivedRemoteContent = true
             await cache.save(detail, key: "entry-\(entry.id).json")
+        }
+        if let translationResponse = try? await translationTask.value {
+            translation = translationResponse.translation
+            receivedRemoteContent = receivedRemoteContent || translation != nil
             await cache.save(translationResponse, key: "translation-\(entry.id).json")
+        }
+        if let rewriteResponse = try? await rewriteTask.value {
+            rewrite = rewriteResponse.rewrite
+            receivedRemoteContent = receivedRemoteContent || rewrite != nil
             await cache.save(rewriteResponse, key: "rewrite-\(entry.id).json")
-        } catch {
-            if entry.content?.isEmpty != false, rewrite == nil, translation == nil {
-                errorMessage = error.localizedDescription
-            }
+        }
+
+        if !receivedRemoteContent, entry.content?.isEmpty != false, rewrite == nil, translation == nil {
+            errorMessage = "正文与乔木改写暂时加载失败，请稍后重试。"
         }
         isLoading = false
     }

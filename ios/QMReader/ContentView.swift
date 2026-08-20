@@ -153,7 +153,7 @@ private struct ListHeader: View {
                 Text("QMREADER")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(0.8)
-                Text("0.2")
+                Text("0.3")
                     .font(.system(size: 9, weight: .medium, design: .rounded))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)

@@ -53,3 +53,23 @@ test('source history treats malformed cursors as the first page', () => {
   const page = store.getEntriesBySource('source-a', { limit: 2, cursor: 'not-a-cursor' });
   assert.deepEqual(page.entries.map(item => item.id), ['entry-e', 'entry-d']);
 });
+
+test('rewrite-ready history publishes only entries with a completed rewrite', () => {
+  store.upsertEntries([
+    entry('ready-entry', 'source-ready', 7_000),
+    entry('raw-entry', 'source-ready', 6_000),
+  ]);
+  store.saveRewrite('ready-entry', {
+    body: '这是完成后的乔木改写正文。',
+    contentHash: 'ready-content-hash',
+    createdBy: '向阳乔木',
+  });
+
+  const page = store.getEntriesBySource('source-ready', { limit: 10, requireRewrite: true });
+  assert.deepEqual(page.entries.map(item => item.id), ['ready-entry']);
+  assert.deepEqual([...store.getRewriteReadyEntryIds(['ready-entry', 'raw-entry'])], ['ready-entry']);
+  assert.deepEqual(
+    store.getRewriteReadyEntries({ sourceIds: ['source-ready'], limit: 10 }).map(item => item.id),
+    ['ready-entry']
+  );
+});

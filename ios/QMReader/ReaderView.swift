@@ -105,7 +105,7 @@ struct ReaderView: View {
             library.markRead(model.entry.id)
             rebuildBlocks()
             await model.load()
-            normalizeMode()
+            normalizeMode(preferRewrite: true)
             rebuildBlocks()
         }
     }
@@ -173,7 +173,11 @@ struct ReaderView: View {
         }
     }
 
-    private func normalizeMode() {
+    private func normalizeMode(preferRewrite: Bool = false) {
+        if preferRewrite, mode == .original, model.rewrite != nil {
+            mode = .rewrite
+            return
+        }
         if mode == .rewrite, model.rewrite == nil {
             mode = model.translation == nil ? .original : .translation
         } else if mode == .translation, model.translation == nil {

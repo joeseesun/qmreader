@@ -34,19 +34,33 @@ actor APIClient {
     }
 
     func entries(limit: Int = 60) async throws -> EntryListResponse {
-        try await get(path: "/api/entries", query: [URLQueryItem(name: "limit", value: String(limit))])
+        try await get(
+            path: "/api/entries",
+            query: [
+                URLQueryItem(name: "limit", value: String(limit)),
+                URLQueryItem(name: "ready", value: "rewrite"),
+            ],
+            timeoutInterval: 15
+        )
     }
 
     func sources() async throws -> SourceListResponse {
-        try await get(path: "/api/sources")
+        try await get(
+            path: "/api/sources",
+            query: [URLQueryItem(name: "ready", value: "rewrite")],
+            timeoutInterval: 10
+        )
     }
 
     func sourceEntries(id: String, limit: Int = 40, cursor: String? = nil) async throws -> SourceEntryPageResponse {
-        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        var query = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "ready", value: "rewrite"),
+        ]
         if let cursor, !cursor.isEmpty {
             query.append(URLQueryItem(name: "cursor", value: cursor))
         }
-        return try await get(path: "/api/sources/\(id)/entries", query: query)
+        return try await get(path: "/api/sources/\(id)/entries", query: query, timeoutInterval: 15)
     }
 
     func refreshHint() async throws -> RefreshHintResponse {
@@ -58,15 +72,15 @@ actor APIClient {
     }
 
     func entry(id: String) async throws -> EntryDetailResponse {
-        try await get(path: "/api/entry/\(id)")
+        try await get(path: "/api/entry/\(id)", timeoutInterval: 15)
     }
 
     func translation(id: String) async throws -> TranslationResponse {
-        try await get(path: "/api/entry/\(id)/translation")
+        try await get(path: "/api/entry/\(id)/translation", timeoutInterval: 10)
     }
 
     func rewrite(id: String) async throws -> RewriteResponse {
-        try await get(path: "/api/entry/\(id)/rewrite")
+        try await get(path: "/api/entry/\(id)/rewrite", timeoutInterval: 10)
     }
 
     private func get<T: Decodable>(
@@ -82,7 +96,7 @@ actor APIClient {
         request.timeoutInterval = 6
         if let timeoutInterval { request.timeoutInterval = timeoutInterval }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("QMReader-iOS/0.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("QMReader-iOS/0.3", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
@@ -98,7 +112,7 @@ actor APIClient {
         request.httpBody = Data("{}".utf8)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("QMReader-iOS/0.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("QMReader-iOS/0.3", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
