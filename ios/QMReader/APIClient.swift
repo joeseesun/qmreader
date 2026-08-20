@@ -41,6 +41,14 @@ actor APIClient {
         try await get(path: "/api/sources")
     }
 
+    func sourceEntries(id: String, limit: Int = 40, cursor: String? = nil) async throws -> SourceEntryPageResponse {
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor, !cursor.isEmpty {
+            query.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        return try await get(path: "/api/sources/\(id)/entries", query: query)
+    }
+
     func entry(id: String) async throws -> EntryDetailResponse {
         try await get(path: "/api/entry/\(id)")
     }

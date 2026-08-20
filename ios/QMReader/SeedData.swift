@@ -1,6 +1,29 @@
 import Foundation
 
 enum SeedData {
+    static let channels: [FeedSource] = [
+        FeedSource(
+            id: "whytryai", name: "Why Try AI", category: "article",
+            siteUrl: "https://www.whytryai.com", description: "AI 工具与工作流通讯",
+            enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
+        ),
+        FeedSource(
+            id: "hackernews", name: "Hacker News", category: "news",
+            siteUrl: "https://news.ycombinator.com", description: "科技社区热门讨论",
+            enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
+        ),
+        FeedSource(
+            id: "producthunt", name: "Product Hunt", category: "product",
+            siteUrl: "https://www.producthunt.com", description: "新产品与独立开发",
+            enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
+        ),
+        FeedSource(
+            id: "garymarcus", name: "Gary Marcus", category: "article",
+            siteUrl: "https://garymarcus.substack.com", description: "AI 评论与行业观察",
+            enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
+        ),
+    ]
+
     static let sources: [String: String] = [
         "whytryai": "Why Try AI",
         "hackernews": "Hacker News",

@@ -3009,6 +3009,21 @@ app.get('/api/entries', (req, res) => {
   res.json({ entries });
 });
 
+app.get('/api/sources/:id/entries', (req, res) => {
+  const limit = Math.max(1, Math.min(100, Number.parseInt(req.query.limit, 10) || 40));
+  const page = fetcher.getSourceEntryHistory({
+    sourceId: req.params.id,
+    limit,
+    cursor: String(req.query.cursor || ''),
+    viewer: req.user,
+  });
+  if (!page) return res.status(404).json({ error: 'source not found' });
+  res.json({
+    ...page,
+    entries: page.entries.map(({ content, ...rest }) => rest),
+  });
+});
+
 app.get('/api/entry/:id', (req, res) => {
   const entry = entryByIdOrPrefix(req.params.id, req.user);
   if (!entry) return res.status(404).json({ error: 'entry not found' });

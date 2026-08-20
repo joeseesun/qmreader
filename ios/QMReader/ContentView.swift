@@ -64,12 +64,12 @@ struct ContentView: View {
     private var content: some View {
         if store.entries.isEmpty, store.isRefreshing {
             VStack(spacing: 0) {
-                ListHeader(isRefreshing: true, refresh: {})
+                ListHeader(isRefreshing: true, channels: store.channels, entries: store.entries, refresh: {})
                 LoadingRows()
             }
         } else if store.entries.isEmpty, let error = store.errorMessage {
             VStack(spacing: 0) {
-                ListHeader(isRefreshing: false) { Task { await store.refresh() } }
+                ListHeader(isRefreshing: false, channels: store.channels, entries: store.entries) { Task { await store.refresh() } }
                 Spacer()
                 StatusView(
                     systemImage: "wifi.exclamationmark",
@@ -81,7 +81,7 @@ struct ContentView: View {
             }
         } else if store.entries.isEmpty {
             VStack(spacing: 0) {
-                ListHeader(isRefreshing: false) { Task { await store.refresh() } }
+                ListHeader(isRefreshing: false, channels: store.channels, entries: store.entries) { Task { await store.refresh() } }
                 Spacer()
                 StatusView(systemImage: "tray", title: "还没有文章", message: "下拉刷新试试")
                 Spacer(minLength: 160)
@@ -89,7 +89,7 @@ struct ContentView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ListHeader(isRefreshing: store.isRefreshing) {
+                    ListHeader(isRefreshing: store.isRefreshing, channels: store.channels, entries: store.entries) {
                         Task { await store.refresh() }
                     }
 
@@ -143,6 +143,8 @@ struct ContentView: View {
 
 private struct ListHeader: View {
     let isRefreshing: Bool
+    let channels: [FeedSource]
+    let entries: [Entry]
     let refresh: () -> Void
 
     var body: some View {
@@ -153,6 +155,15 @@ private struct ListHeader: View {
                 .foregroundStyle(AppTheme.secondary)
 
             Spacer()
+
+            NavigationLink {
+                ChannelListView(sources: channels, cachedEntries: entries)
+            } label: {
+                Label("频道", systemImage: "rectangle.stack")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(minHeight: 44)
+            }
+            .accessibilityLabel("查看频道")
 
             Button(action: refresh) {
                 Group {
@@ -191,7 +202,7 @@ private struct SectionHeader: View {
     }
 }
 
-private struct EntryRow: View {
+struct EntryRow: View {
     let entry: Entry
     let sourceName: String
     let isRead: Bool
@@ -288,7 +299,7 @@ struct ToastBanner: View {
     }
 }
 
-private struct LoadingRows: View {
+struct LoadingRows: View {
     var body: some View {
         VStack(spacing: 0) {
             SectionHeader(title: "今天")

@@ -4,6 +4,7 @@ import Foundation
 final class EntryStore: ObservableObject {
     @Published private(set) var entries: [Entry] = []
     @Published private(set) var sources: [String: String] = [:]
+    @Published private(set) var channels: [FeedSource] = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
     @Published var toastMessage: String?
@@ -17,19 +18,19 @@ final class EntryStore: ObservableObject {
         guard !hasLoaded else { return }
         hasLoaded = true
 
+        // Paint a useful first frame immediately; disk and network data can replace it.
+        entries = SeedData.entries
+        sources = SeedData.sources
+        channels = SeedData.channels
+
         async let cachedEntries = cache.load(EntryListResponse.self, key: "entries.json")
         async let cachedSources = cache.load(SourceListResponse.self, key: "sources.json")
         if let response = await cachedEntries {
             entries = response.entries
         }
         if let response = await cachedSources {
+            channels = response.sources
             sources = Dictionary(uniqueKeysWithValues: response.sources.map { ($0.id, $0.name) })
-        }
-        if entries.isEmpty {
-            entries = SeedData.entries
-        }
-        if sources.isEmpty {
-            sources = SeedData.sources
         }
         await refresh()
     }
@@ -51,6 +52,7 @@ final class EntryStore: ObservableObject {
         }
 
         if let sourceResponse = try? await sourcesTask.value {
+            channels = sourceResponse.sources
             sources = Dictionary(uniqueKeysWithValues: sourceResponse.sources.map { ($0.id, $0.name) })
             await cache.save(sourceResponse, key: "sources.json")
         }
@@ -68,6 +70,81 @@ final class EntryStore: ObservableObject {
             guard !Task.isCancelled else { return }
             self?.toastMessage = nil
         }
+    }
+}
+
+@MainActor
+final class ChannelHistoryStore: ObservableObject {
+    @Published private(set) var entries: [Entry]
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var isLoadingMore = false
+    @Published private(set) var hasMore = false
+    @Published private(set) var errorMessage: String?
+
+    private let source: FeedSource
+    private let api = APIClient.shared
+    private let cache = DiskCache.shared
+    private var nextCursor: String?
+    private var hasStarted = false
+
+    init(source: FeedSource, seedEntries: [Entry]) {
+        self.source = source
+        entries = seedEntries
+    }
+
+    func start() async {
+        guard !hasStarted else { return }
+        hasStarted = true
+        if let snapshot = await cache.load(SourceHistorySnapshot.self, key: cacheKey) {
+            entries = snapshot.entries
+            hasMore = snapshot.hasMore
+            nextCursor = snapshot.nextCursor
+        }
+        await refresh()
+    }
+
+    func refresh() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        errorMessage = nil
+        defer { isRefreshing = false }
+        do {
+            let page = try await api.sourceEntries(id: source.id)
+            entries = page.entries
+            hasMore = page.hasMore
+            nextCursor = page.nextCursor
+            await saveSnapshot()
+        } catch {
+            if entries.isEmpty {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadMore() async {
+        guard hasMore, !isLoadingMore, let nextCursor else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let page = try await api.sourceEntries(id: source.id, cursor: nextCursor)
+            var seen = Set(entries.map(\.id))
+            entries.append(contentsOf: page.entries.filter { seen.insert($0.id).inserted })
+            hasMore = page.hasMore
+            self.nextCursor = page.nextCursor
+            errorMessage = nil
+            await saveSnapshot()
+        } catch {
+            errorMessage = "更早内容加载失败，可以稍后重试。"
+        }
+    }
+
+    private var cacheKey: String { "source-history-\(source.id).json" }
+
+    private func saveSnapshot() async {
+        await cache.save(
+            SourceHistorySnapshot(entries: entries, hasMore: hasMore, nextCursor: nextCursor),
+            key: cacheKey
+        )
     }
 }
 

@@ -12,10 +12,28 @@ struct SourceListResponse: Codable {
     let sources: [FeedSource]
 }
 
+struct SourceEntryPageResponse: Codable {
+    let entries: [Entry]
+    let hasMore: Bool
+    let nextCursor: String?
+}
+
+struct SourceHistorySnapshot: Codable {
+    let entries: [Entry]
+    let hasMore: Bool
+    let nextCursor: String?
+}
+
 struct FeedSource: Codable, Hashable, Identifiable {
     let id: String
     let name: String
     let category: String?
+    let siteUrl: String?
+    let description: String?
+    let enabled: Bool?
+    let status: String?
+    let fetchedAt: Double?
+    let entryCount: Int?
 }
 
 struct Entry: Codable, Hashable, Identifiable {
