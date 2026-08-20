@@ -149,10 +149,17 @@ private struct ListHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("QMREADER")
-                .font(.system(size: 12, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(AppTheme.secondary)
+            HStack(spacing: 6) {
+                Text("QMREADER")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(0.8)
+                Text("0.2")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(AppTheme.placeholder, in: Capsule())
+            }
+            .foregroundStyle(AppTheme.secondary)
 
             Spacer()
 

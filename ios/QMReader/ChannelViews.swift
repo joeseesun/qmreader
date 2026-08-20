@@ -127,9 +127,15 @@ struct ChannelTimelineView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             AppTheme.paper.ignoresSafeArea()
             content
+
+            if let message = store.toastMessage {
+                ToastBanner(message: message)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+            }
         }
         .navigationTitle(source.name)
         .navigationBarTitleDisplayMode(.inline)

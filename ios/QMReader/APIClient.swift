@@ -49,6 +49,14 @@ actor APIClient {
         return try await get(path: "/api/sources/\(id)/entries", query: query)
     }
 
+    func refreshHint() async throws -> RefreshHintResponse {
+        try await post(path: "/api/refresh-hint")
+    }
+
+    func sourceRefreshHint(id: String) async throws -> RefreshHintResponse {
+        try await post(path: "/api/sources/\(id)/refresh-hint")
+    }
+
     func entry(id: String) async throws -> EntryDetailResponse {
         try await get(path: "/api/entry/\(id)")
     }
@@ -61,13 +69,35 @@ actor APIClient {
         try await get(path: "/api/entry/\(id)/rewrite")
     }
 
-    private func get<T: Decodable>(path: String, query: [URLQueryItem] = []) async throws -> T {
+    private func get<T: Decodable>(
+        path: String,
+        query: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> T {
         var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)!
         components.queryItems = query.isEmpty ? nil : query
         guard let url = components.url else { throw APIError.invalidResponse }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.timeoutInterval = 6
+        if let timeoutInterval { request.timeoutInterval = timeoutInterval }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("QMReader-iOS/0.2", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw APIError.status(http.statusCode) }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func post<T: Decodable>(path: String) async throws -> T {
+        let url = baseURL.appending(path: path)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.timeoutInterval = 6
+        request.httpMethod = "POST"
+        request.httpBody = Data("{}".utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("QMReader-iOS/0.2", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)

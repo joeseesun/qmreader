@@ -108,6 +108,7 @@ let aiWorker = null;
 let aiJob = null;
 let aiLast = null;
 const aiQueuedSourceIds = new Set();
+const refreshQueuedSourceIds = new Set();
 let autoRewriteRunning = false;
 let autoRewriteLast = null;
 const sourceInteractionRefreshAt = new Map();
@@ -2218,6 +2219,7 @@ function backgroundJobState() {
       job: refreshJob,
       last: refreshLast,
       progress: refreshProgress,
+      queuedSourceIds: Array.from(refreshQueuedSourceIds),
     },
     ai: {
       running: Boolean(aiWorker),
@@ -2282,6 +2284,15 @@ function finishFetchJob({ result = null, error = null, code = 0, signal = '' } =
   refreshWorker = null;
   refreshJob = null;
   reloadFetcherAfterWorker();
+  if (refreshQueuedSourceIds.size) {
+    const queued = Array.from(refreshQueuedSourceIds);
+    refreshQueuedSourceIds.clear();
+    startFetchJob({
+      kind: 'refresh',
+      sourceIds: queued,
+      reason: 'queued-source-interaction',
+    });
+  }
 }
 
 function finishAiJob({ result = null, error = null, code = 0, signal = '' } = {}) {
@@ -2372,7 +2383,6 @@ function startFetchJob(job = {}) {
         }
         refreshing = false;
       }
-      reloadFetcherAfterWorker();
       refreshLast = {
         kind: 'refresh',
         sourceId: refreshJob && refreshJob.sourceId || '',
@@ -2525,9 +2535,6 @@ function triggerSourceInteractionRefresh(sourceId, reason = 'interaction') {
   if (!src) return { started: false, skipped: 'source not found' };
   if (src.manual) return { started: false, skipped: 'manual source' };
   if (!fetcher.isEnabled(src)) return { started: false, skipped: 'source disabled' };
-  if (refreshWorker) {
-    return { started: false, running: true, skipped: 'refresh already running', job: refreshJob };
-  }
   const cooldown = Number.isFinite(SOURCE_INTERACTION_REFRESH_COOLDOWN_MS)
     ? Math.max(0, SOURCE_INTERACTION_REFRESH_COOLDOWN_MS)
     : 15 * 60 * 1000;
@@ -2535,6 +2542,17 @@ function triggerSourceInteractionRefresh(sourceId, reason = 'interaction') {
   const last = sourceInteractionRefreshAt.get(id) || 0;
   if (cooldown && now - last < cooldown) {
     return { started: false, skipped: 'cooldown', nextAllowedAt: last + cooldown };
+  }
+  if (refreshWorker) {
+    refreshQueuedSourceIds.add(id);
+    sourceInteractionRefreshAt.set(id, now);
+    return {
+      started: false,
+      running: true,
+      queued: true,
+      skipped: 'refresh queued',
+      job: refreshJob,
+    };
   }
   const result = startBackgroundJob({
     kind: 'refresh',
@@ -2688,6 +2706,17 @@ app.post('/api/sources/:id/refresh-hint', (req, res) => {
     res.json({ ok: true, refresh });
   } catch (e) {
     sendError(res, e, 'source refresh hint failed');
+  }
+});
+
+app.post('/api/refresh-hint', (req, res) => {
+  try {
+    // Public clients may ask for freshness, but the server still decides the
+    // stale sources, batch size, cost ceiling and single-worker concurrency.
+    const refresh = triggerFreshnessRefresh();
+    res.json({ ok: true, refresh });
+  } catch (e) {
+    sendError(res, e, 'refresh hint failed');
   }
 });
 

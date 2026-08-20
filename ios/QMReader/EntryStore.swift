@@ -32,7 +32,9 @@ final class EntryStore: ObservableObject {
             channels = response.sources
             sources = Dictionary(uniqueKeysWithValues: response.sources.map { ($0.id, $0.name) })
         }
-        await refresh()
+        Task { [weak self] in
+            await self?.syncFromServer(showFailureToast: false)
+        }
     }
 
     func refresh() async {
@@ -41,20 +43,49 @@ final class EntryStore: ObservableObject {
         errorMessage = nil
         defer { isRefreshing = false }
 
+        var hint: RefreshHint?
+        do {
+            hint = try await api.refreshHint().refresh
+        } catch {
+            showToast("源站更新请求失败，正在读取已有内容。")
+        }
+
+        if let hint {
+            showToast(refreshMessage(for: hint))
+        }
+        scheduleServerSync()
+    }
+
+    @discardableResult
+    private func syncFromServer(showFailureToast: Bool) async -> Bool {
         let sourcesTask = Task { try await api.sources() }
+        var contentLoadFailed = false
 
         do {
             let entryResponse = try await api.entries()
             entries = entryResponse.entries
             await cache.save(entryResponse, key: "entries.json")
         } catch {
-            showToast("刷新失败，正在展示已缓存内容。")
+            contentLoadFailed = true
+            if showFailureToast {
+                showToast("刷新失败，正在展示已缓存内容。")
+            }
         }
 
         if let sourceResponse = try? await sourcesTask.value {
             channels = sourceResponse.sources
             sources = Dictionary(uniqueKeysWithValues: sourceResponse.sources.map { ($0.id, $0.name) })
             await cache.save(sourceResponse, key: "sources.json")
+        }
+
+        return contentLoadFailed
+    }
+
+    private func scheduleServerSync() {
+        Task { [weak self] in
+            await self?.syncFromServer(showFailureToast: false)
+            try? await Task.sleep(for: .seconds(10))
+            await self?.syncFromServer(showFailureToast: false)
         }
     }
 
@@ -71,6 +102,16 @@ final class EntryStore: ObservableObject {
             self?.toastMessage = nil
         }
     }
+
+    private func refreshMessage(for hint: RefreshHint) -> String {
+        if hint.started == true || hint.running == true {
+            return "源站更新已提交；符合条件的新文章会后台自动改写。"
+        }
+        if hint.skipped == "no stale sources" || hint.skipped == "cooldown" {
+            return "内容已是最新。"
+        }
+        return "已检查源站更新。"
+    }
 }
 
 @MainActor
@@ -80,12 +121,14 @@ final class ChannelHistoryStore: ObservableObject {
     @Published private(set) var isLoadingMore = false
     @Published private(set) var hasMore = false
     @Published private(set) var errorMessage: String?
+    @Published var toastMessage: String?
 
     private let source: FeedSource
     private let api = APIClient.shared
     private let cache = DiskCache.shared
     private var nextCursor: String?
     private var hasStarted = false
+    private var toastTask: Task<Void, Never>?
 
     init(source: FeedSource, seedEntries: [Entry]) {
         self.source = source
@@ -100,7 +143,9 @@ final class ChannelHistoryStore: ObservableObject {
             hasMore = snapshot.hasMore
             nextCursor = snapshot.nextCursor
         }
-        await refresh()
+        Task { [weak self] in
+            await self?.syncFirstPage(showFailure: false)
+        }
     }
 
     func refresh() async {
@@ -108,16 +153,42 @@ final class ChannelHistoryStore: ObservableObject {
         isRefreshing = true
         errorMessage = nil
         defer { isRefreshing = false }
+
+        var hint: RefreshHint?
+        do {
+            hint = try await api.sourceRefreshHint(id: source.id).refresh
+        } catch {
+            showToast("源站更新请求失败，正在读取历史内容。")
+        }
+
+        if let hint {
+            showToast(refreshMessage(for: hint))
+        }
+        scheduleFirstPageSync()
+    }
+
+    @discardableResult
+    private func syncFirstPage(showFailure: Bool) async -> Bool {
         do {
             let page = try await api.sourceEntries(id: source.id)
             entries = page.entries
             hasMore = page.hasMore
             nextCursor = page.nextCursor
             await saveSnapshot()
+            return false
         } catch {
-            if entries.isEmpty {
+            if showFailure, entries.isEmpty {
                 errorMessage = error.localizedDescription
             }
+            return true
+        }
+    }
+
+    private func scheduleFirstPageSync() {
+        Task { [weak self] in
+            await self?.syncFirstPage(showFailure: false)
+            try? await Task.sleep(for: .seconds(10))
+            await self?.syncFirstPage(showFailure: false)
         }
     }
 
@@ -145,6 +216,29 @@ final class ChannelHistoryStore: ObservableObject {
             SourceHistorySnapshot(entries: entries, hasMore: hasMore, nextCursor: nextCursor),
             key: cacheKey
         )
+    }
+
+    private func showToast(_ message: String) {
+        toastTask?.cancel()
+        toastMessage = message
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.toastMessage = nil
+        }
+    }
+
+    private func refreshMessage(for hint: RefreshHint) -> String {
+        if hint.skipped == "source disabled" {
+            return "此频道已暂停更新，历史内容仍可阅读。"
+        }
+        if hint.started == true || hint.running == true {
+            return "频道更新已提交；符合条件的新文章会后台自动改写。"
+        }
+        if hint.skipped == "cooldown" {
+            return "频道刚刚更新过，当前已是最新。"
+        }
+        return "已检查频道更新。"
     }
 }
 

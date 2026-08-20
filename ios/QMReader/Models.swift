@@ -10,6 +10,20 @@ struct EntryDetailResponse: Codable {
 
 struct SourceListResponse: Codable {
     let sources: [FeedSource]
+    let refreshing: Bool?
+}
+
+struct RefreshHintResponse: Codable {
+    let ok: Bool
+    let refresh: RefreshHint
+}
+
+struct RefreshHint: Codable {
+    let started: Bool?
+    let running: Bool?
+    let queued: Bool?
+    let skipped: String?
+    let nextAllowedAt: Double?
 }
 
 struct SourceEntryPageResponse: Codable {
