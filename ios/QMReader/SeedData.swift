@@ -8,11 +8,6 @@ enum SeedData {
             enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
         ),
         FeedSource(
-            id: "hackernews", name: "Hacker News", category: "news",
-            siteUrl: "https://news.ycombinator.com", description: "科技社区热门讨论",
-            enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
-        ),
-        FeedSource(
             id: "producthunt", name: "Product Hunt", category: "product",
             siteUrl: "https://www.producthunt.com", description: "新产品与独立开发",
             enabled: true, status: "ok", fetchedAt: nil, entryCount: nil
@@ -26,7 +21,6 @@ enum SeedData {
 
     static let sources: [String: String] = [
         "whytryai": "Why Try AI",
-        "hackernews": "Hacker News",
         "producthunt": "Product Hunt",
         "garymarcus": "Gary Marcus",
     ]
@@ -44,20 +38,6 @@ enum SeedData {
             content: nil,
             image: "https://substackcdn.com/image/fetch/$s_!s080!,w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fcfd75d2b-a766-43a8-a8f1-fb3270dac942_757x239.png",
             titleZh: "你最好的提示词藏在聊天记录里",
-            assets: EntryAssets(translation: false, rewrite: true)
-        ),
-        Entry(
-            id: "8096d5e7d9996ddc85234f15dd08426d",
-            sourceId: "hackernews",
-            title: "Don't Paste the AI, please",
-            link: "https://dontpastetheai.com/",
-            author: "pjerem",
-            published: "2026-08-20T08:20:44.000Z",
-            publishedTs: 1_787_214_044_000,
-            summary: "Hacker News：543 points / 263 comments。Article URL: https://dontpastetheai.com/",
-            content: nil,
-            image: "https://dontpastetheai.com/assets/og-image.png",
-            titleZh: "请不要粘贴 AI",
             assets: EntryAssets(translation: false, rewrite: true)
         ),
         Entry(

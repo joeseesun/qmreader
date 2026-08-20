@@ -1,5 +1,17 @@
 import Foundation
 
+private enum SourceVisibility {
+    static let hiddenIDs: Set<String> = ["hackernews"]
+
+    static func entries(_ entries: [Entry]) -> [Entry] {
+        entries.filter { !hiddenIDs.contains($0.sourceId) }
+    }
+
+    static func sources(_ sources: [FeedSource]) -> [FeedSource] {
+        sources.filter { !hiddenIDs.contains($0.id) }
+    }
+}
+
 @MainActor
 final class EntryStore: ObservableObject {
     @Published private(set) var entries: [Entry] = []
@@ -26,11 +38,12 @@ final class EntryStore: ObservableObject {
         async let cachedEntries = cache.load(EntryListResponse.self, key: "entries.json")
         async let cachedSources = cache.load(SourceListResponse.self, key: "sources.json")
         if let response = await cachedEntries {
-            entries = response.entries
+            entries = SourceVisibility.entries(response.entries)
         }
         if let response = await cachedSources {
-            channels = response.sources
-            sources = Dictionary(uniqueKeysWithValues: response.sources.map { ($0.id, $0.name) })
+            let visibleSources = SourceVisibility.sources(response.sources)
+            channels = visibleSources
+            sources = Dictionary(uniqueKeysWithValues: visibleSources.map { ($0.id, $0.name) })
         }
         Task { [weak self] in
             await self?.syncFromServer(showFailureToast: false)
@@ -63,8 +76,9 @@ final class EntryStore: ObservableObject {
 
         do {
             let entryResponse = try await api.entries()
-            entries = entryResponse.entries
-            await cache.save(entryResponse, key: "entries.json")
+            let visibleResponse = EntryListResponse(entries: SourceVisibility.entries(entryResponse.entries))
+            entries = visibleResponse.entries
+            await cache.save(visibleResponse, key: "entries.json")
         } catch {
             contentLoadFailed = true
             if showFailureToast {
@@ -73,9 +87,11 @@ final class EntryStore: ObservableObject {
         }
 
         if let sourceResponse = try? await sourcesTask.value {
-            channels = sourceResponse.sources
-            sources = Dictionary(uniqueKeysWithValues: sourceResponse.sources.map { ($0.id, $0.name) })
-            await cache.save(sourceResponse, key: "sources.json")
+            let visibleSources = SourceVisibility.sources(sourceResponse.sources)
+            let visibleResponse = SourceListResponse(sources: visibleSources, refreshing: sourceResponse.refreshing)
+            channels = visibleSources
+            sources = Dictionary(uniqueKeysWithValues: visibleSources.map { ($0.id, $0.name) })
+            await cache.save(visibleResponse, key: "sources.json")
         }
 
         return contentLoadFailed
