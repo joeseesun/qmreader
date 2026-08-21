@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import CoreText
+import OSLog
 
 enum ReaderTypeface: String, CaseIterable, Identifiable {
     case pingFang
@@ -16,6 +18,22 @@ enum ReaderTypeface: String, CaseIterable, Identifiable {
         }
     }
 
+    var sample: String {
+        switch self {
+        case .pingFang: "阅"
+        case .songti: "读"
+        case .kaiti: "书"
+        }
+    }
+
+    var isAvailable: Bool {
+        postScriptNames.allSatisfy { UIFont(name: $0, size: 17) != nil }
+    }
+
+    var postScriptNames: [String] {
+        [postScriptName(weight: .regular), postScriptName(weight: .semibold)]
+    }
+
     func font(
         size: CGFloat,
         weight: Font.Weight = .regular,
@@ -23,7 +41,8 @@ enum ReaderTypeface: String, CaseIterable, Identifiable {
     ) -> Font {
         let name = postScriptName(weight: weight)
         guard UIFont(name: name, size: size) != nil else {
-            return .custom("PingFangSC-Regular", size: size, relativeTo: style)
+            ReaderFontLog.logger.error("Font unavailable: \(name, privacy: .public)")
+            return .system(size: size, weight: weight)
         }
         return .custom(name, size: size, relativeTo: style)
     }
@@ -39,6 +58,67 @@ enum ReaderTypeface: String, CaseIterable, Identifiable {
             return emphasized ? "STKaitiSC-Bold" : "STKaitiSC-Regular"
         }
     }
+}
+
+@MainActor
+final class ReaderFontStore: ObservableObject {
+    @Published private(set) var downloading: ReaderTypeface?
+    @Published private(set) var revision = 0
+    @Published private(set) var errorMessage: String?
+
+    func refresh() {
+        revision += 1
+    }
+
+    func request(_ typeface: ReaderTypeface, completion: @escaping (Bool) -> Void) {
+        guard downloading == nil else { return }
+        guard !typeface.isAvailable else {
+            errorMessage = nil
+            refresh()
+            completion(true)
+            return
+        }
+
+        downloading = typeface
+        errorMessage = nil
+        let descriptors = typeface.postScriptNames.map { name in
+            CTFontDescriptorCreateWithAttributes([
+                kCTFontNameAttribute: name,
+            ] as CFDictionary)
+        }
+        var failed = false
+        let started = CTFontDescriptorMatchFontDescriptorsWithProgressHandler(
+            descriptors as CFArray,
+            nil
+        ) { [weak self] state, _ in
+            switch state {
+            case .didFailWithError:
+                failed = true
+            case .didFinish:
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    let succeeded = !failed && typeface.isAvailable
+                    self.downloading = nil
+                    self.errorMessage = succeeded ? nil : "字体下载失败，请检查网络后重试"
+                    self.refresh()
+                    completion(succeeded)
+                }
+            default:
+                break
+            }
+            return true
+        }
+
+        if !started {
+            downloading = nil
+            errorMessage = "字体暂时不可下载"
+            completion(false)
+        }
+    }
+}
+
+private enum ReaderFontLog {
+    static let logger = Logger(subsystem: "ai.qiaomu.qmreader", category: "ReaderFont")
 }
 
 enum ReaderLineHeight: String, CaseIterable, Identifiable {
@@ -58,9 +138,33 @@ enum ReaderLineHeight: String, CaseIterable, Identifiable {
 
     var extraSpacingRatio: CGFloat {
         switch self {
-        case .compact: 0.42
-        case .comfortable: 0.47
-        case .relaxed: 0.56
+        case .compact: 0.40
+        case .comfortable: 0.55
+        case .relaxed: 0.70
+        }
+    }
+}
+
+enum ReaderMargin: String, CaseIterable, Identifiable {
+    case narrow
+    case standard
+    case wide
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .narrow: "窄"
+        case .standard: "标准"
+        case .wide: "宽"
+        }
+    }
+
+    var horizontalPadding: CGFloat {
+        switch self {
+        case .narrow: 16
+        case .standard: 20
+        case .wide: 28
         }
     }
 }
@@ -69,6 +173,7 @@ enum ReaderAppearance: String, CaseIterable, Identifiable {
     case system
     case paper
     case white
+    case eyeCare
     case night
 
     var id: String { rawValue }
@@ -78,6 +183,7 @@ enum ReaderAppearance: String, CaseIterable, Identifiable {
         case .system: "自动"
         case .paper: "暖纸"
         case .white: "素白"
+        case .eyeCare: "护眼"
         case .night: "深夜"
         }
     }
@@ -85,7 +191,7 @@ enum ReaderAppearance: String, CaseIterable, Identifiable {
     var preferredColorScheme: ColorScheme? {
         switch self {
         case .system: nil
-        case .paper, .white: .light
+        case .paper, .white, .eyeCare: .light
         case .night: .dark
         }
     }
@@ -113,9 +219,9 @@ struct ReaderPalette {
         case .night:
             return ReaderPalette(
                 paper: rgb(0x161513),
-                ink: rgb(0xE9E6E0),
-                secondary: rgb(0xA39D93),
-                meta: rgb(0xB5AEA4),
+                ink: rgb(0xCFCAC2),
+                secondary: rgb(0x918B82),
+                meta: rgb(0xA39C92),
                 quoteFill: rgb(0x201D1A),
                 codeFill: rgb(0x211E1B),
                 placeholder: rgb(0x242220),
@@ -123,7 +229,7 @@ struct ReaderPalette {
             )
         case .white:
             return ReaderPalette(
-                paper: rgb(0xFCFCFB),
+                paper: rgb(0xFFFEFC),
                 ink: rgb(0x1C1B19),
                 secondary: rgb(0x746F67),
                 meta: rgb(0x676159),
@@ -132,15 +238,26 @@ struct ReaderPalette {
                 placeholder: rgb(0xECEAE5),
                 accent: rgb(0x99502A)
             )
+        case .eyeCare:
+            return ReaderPalette(
+                paper: rgb(0xE8F0E4),
+                ink: rgb(0x263027),
+                secondary: rgb(0x687267),
+                meta: rgb(0x59645A),
+                quoteFill: rgb(0xDDE8D8),
+                codeFill: rgb(0xD8E3D4),
+                placeholder: rgb(0xD5E0D1),
+                accent: rgb(0x7E4E31)
+            )
         case .paper, .system:
             return ReaderPalette(
-                paper: rgb(0xFAF8F4),
+                paper: rgb(0xF7F3EA),
                 ink: rgb(0x1E1C19),
                 secondary: rgb(0x8C877D),
                 meta: rgb(0x716B61),
                 quoteFill: rgb(0xF2EEE5),
                 codeFill: rgb(0xEDE9DF),
-                placeholder: rgb(0xEDEAE3),
+                placeholder: rgb(0xE9E3D8),
                 accent: rgb(0xA65A2E)
             )
         }

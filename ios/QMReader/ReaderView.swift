@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ReaderView: View {
     @StateObject private var model: ReaderViewModel
+    @StateObject private var fontStore = ReaderFontStore()
     @EnvironmentObject private var library: LibraryState
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var systemColorScheme
@@ -9,6 +10,7 @@ struct ReaderView: View {
     @AppStorage("readerFontSize") private var fontSize = 17.0
     @AppStorage("readerTypeface") private var typefaceRawValue = ReaderTypeface.pingFang.rawValue
     @AppStorage("readerLineHeight") private var lineHeightRawValue = ReaderLineHeight.comfortable.rawValue
+    @AppStorage("readerMargin") private var marginRawValue = ReaderMargin.standard.rawValue
     @AppStorage("readerAppearance") private var appearanceRawValue = ReaderAppearance.system.rawValue
     @State private var mode: ReaderMode
     @State private var blocks: [ArticleBlock] = []
@@ -52,11 +54,12 @@ struct ReaderView: View {
                         mode: mode,
                         rewrite: model.rewrite,
                         typeface: typeface,
+                        horizontalPadding: margin.horizontalPadding,
                         palette: palette
                     )
 
                     content
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, margin.horizontalPadding)
                         .padding(.top, 28)
                         .padding(.bottom, 44)
                         .frame(maxWidth: 640, alignment: .leading)
@@ -144,6 +147,10 @@ struct ReaderView: View {
             }
         }
         .task {
+            fontStore.refresh()
+            if selectedTypeface != .pingFang, !selectedTypeface.isAvailable {
+                typefaceRawValue = ReaderTypeface.pingFang.rawValue
+            }
             library.markRead(model.entry.id)
             rebuildBlocks()
             await model.load()
@@ -153,16 +160,19 @@ struct ReaderView: View {
         .sheet(isPresented: $isShowingAppearance) {
             ReaderAppearanceSheet(
                 fontSize: fontSize,
-                typeface: typeface,
+                typeface: selectedTypeface,
                 lineHeight: lineHeight,
+                margin: margin,
                 appearance: appearance,
                 palette: palette,
+                fontStore: fontStore,
                 setFontSize: { fontSize = $0 },
-                setTypeface: { typefaceRawValue = $0.rawValue },
+                setTypeface: selectTypeface,
                 setLineHeight: { lineHeightRawValue = $0.rawValue },
+                setMargin: { marginRawValue = $0.rawValue },
                 setAppearance: { appearanceRawValue = $0.rawValue }
             )
-            .presentationDetents([.height(452), .medium])
+            .presentationDetents([.fraction(0.78), .large])
             .presentationDragIndicator(.visible)
             .presentationBackground(palette.paper)
         }
@@ -231,11 +241,19 @@ struct ReaderView: View {
     }
 
     private var typeface: ReaderTypeface {
+        selectedTypeface.isAvailable ? selectedTypeface : .pingFang
+    }
+
+    private var selectedTypeface: ReaderTypeface {
         ReaderTypeface(rawValue: typefaceRawValue) ?? .pingFang
     }
 
     private var lineHeight: ReaderLineHeight {
         ReaderLineHeight(rawValue: lineHeightRawValue) ?? .comfortable
+    }
+
+    private var margin: ReaderMargin {
+        ReaderMargin(rawValue: marginRawValue) ?? .standard
     }
 
     private var appearance: ReaderAppearance {
@@ -244,6 +262,20 @@ struct ReaderView: View {
 
     private var palette: ReaderPalette {
         ReaderPalette.resolve(appearance: appearance, systemScheme: systemColorScheme)
+    }
+
+    private func selectTypeface(_ candidate: ReaderTypeface) {
+        guard !candidate.isAvailable else {
+            typefaceRawValue = candidate.rawValue
+            return
+        }
+        fontStore.request(candidate) { succeeded in
+            if succeeded {
+                typefaceRawValue = candidate.rawValue
+            } else {
+                showToast("字体下载失败，请稍后重试", icon: "exclamationmark.circle")
+            }
+        }
     }
 
     private func updateToolbarVisibility(_ offset: CGFloat) {
@@ -400,6 +432,7 @@ private struct ReaderHeader: View {
     let mode: ReaderMode
     let rewrite: RewriteAsset?
     let typeface: ReaderTypeface
+    let horizontalPadding: CGFloat
     let palette: ReaderPalette
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -437,7 +470,7 @@ private struct ReaderHeader: View {
                 .frame(height: 0.5)
                 .padding(.top, 20)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, horizontalPadding)
         .padding(.top, 12)
         .frame(maxWidth: 640, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -543,16 +576,19 @@ private struct ReaderAppearanceSheet: View {
     let fontSize: Double
     let typeface: ReaderTypeface
     let lineHeight: ReaderLineHeight
+    let margin: ReaderMargin
     let appearance: ReaderAppearance
     let palette: ReaderPalette
+    @ObservedObject var fontStore: ReaderFontStore
     let setFontSize: (Double) -> Void
     let setTypeface: (ReaderTypeface) -> Void
     let setLineHeight: (ReaderLineHeight) -> Void
+    let setMargin: (ReaderMargin) -> Void
     let setAppearance: (ReaderAppearance) -> Void
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 22) {
                 HStack {
                     Text("阅读外观")
                         .font(.system(size: 20, weight: .semibold))
@@ -563,32 +599,48 @@ private struct ReaderAppearanceSheet: View {
                         .foregroundStyle(palette.accent)
                 }
 
-                settingSection("字号") {
-                    HStack(spacing: 8) {
-                        sizeChoice("小", value: 15)
-                        sizeChoice("标准", value: 17)
-                        sizeChoice("大", value: 19)
-                        sizeChoice("特大", value: 21)
+                settingSection("字号", value: "\(Int(fontSize))") {
+                    HStack(spacing: 12) {
+                        stepButton(systemImage: "textformat.size.smaller", enabled: fontSize > 15) {
+                            setFontSize(max(15, fontSize - 1))
+                        }
+                        Slider(
+                            value: Binding(get: { fontSize }, set: setFontSize),
+                            in: 15...24,
+                            step: 1
+                        )
+                        .tint(palette.accent)
+                        stepButton(systemImage: "textformat.size.larger", enabled: fontSize < 24) {
+                            setFontSize(min(24, fontSize + 1))
+                        }
                     }
                 }
 
                 settingSection("字体") {
                     HStack(spacing: 8) {
                         ForEach(ReaderTypeface.allCases) { candidate in
-                            choiceButton(candidate.label, selected: typeface == candidate) {
-                                setTypeface(candidate)
-                            }
-                            .font(candidate.font(size: 15, weight: .medium, relativeTo: .callout))
+                            typefaceChoice(candidate)
                         }
+                    }
+                    if let errorMessage = fontStore.errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12))
+                            .foregroundStyle(palette.meta)
                     }
                 }
 
                 settingSection("行距") {
                     HStack(spacing: 8) {
                         ForEach(ReaderLineHeight.allCases) { candidate in
-                            choiceButton(candidate.label, selected: lineHeight == candidate) {
-                                setLineHeight(candidate)
-                            }
+                            lineHeightChoice(candidate)
+                        }
+                    }
+                }
+
+                settingSection("页边距") {
+                    HStack(spacing: 8) {
+                        ForEach(ReaderMargin.allCases) { candidate in
+                            marginChoice(candidate)
                         }
                     }
                 }
@@ -611,42 +663,130 @@ private struct ReaderAppearanceSheet: View {
 
     private func settingSection<Content: View>(
         _ title: String,
+        value: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(palette.meta)
+            HStack {
+                Text(title)
+                Spacer()
+                if let value {
+                    Text(value).monospacedDigit()
+                }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(palette.meta)
             content()
         }
     }
 
-    private func sizeChoice(_ label: String, value: Double) -> some View {
-        choiceButton(label, selected: fontSize == value) {
-            setFontSize(value)
-        }
-    }
-
-    private func choiceButton(
-        _ label: String,
-        selected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
+    private func stepButton(systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(selected ? palette.accent : palette.ink)
-                .frame(maxWidth: .infinity, minHeight: 38)
-                .background(
-                    selected ? palette.accent.opacity(0.12) : palette.quoteFill,
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(selected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
-                }
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(enabled ? palette.ink : palette.meta.opacity(0.45))
+                .frame(width: 44, height: 44)
+                .background(palette.quoteFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+
+    private func typefaceChoice(_ candidate: ReaderTypeface) -> some View {
+        let isSelected = typeface == candidate
+        let isDownloading = fontStore.downloading == candidate
+        return Button {
+            setTypeface(candidate)
+        } label: {
+            VStack(spacing: 4) {
+                ZStack(alignment: .topTrailing) {
+                    if isDownloading {
+                        ProgressView().controlSize(.small)
+                            .frame(height: 28)
+                    } else {
+                        Text(candidate.sample)
+                            .font(candidate.isAvailable
+                                ? candidate.font(size: 24, weight: .medium, relativeTo: .title3)
+                                : .system(size: 24, weight: .regular))
+                            .frame(height: 28)
+                    }
+                    if !candidate.isAvailable, !isDownloading {
+                        Image(systemName: "icloud.and.arrow.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(palette.meta)
+                            .offset(x: 12, y: -2)
+                    }
+                }
+                Text(candidate.label)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(isSelected ? palette.accent : palette.ink)
+            .frame(maxWidth: .infinity, minHeight: 58)
+            .background(isSelected ? palette.accent.opacity(0.12) : palette.quoteFill,
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(fontStore.downloading != nil)
+        .accessibilityLabel(candidate.isAvailable ? candidate.label : "下载并使用\(candidate.label)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func lineHeightChoice(_ candidate: ReaderLineHeight) -> some View {
+        let isSelected = lineHeight == candidate
+        let gap: CGFloat = candidate == .compact ? 3 : candidate == .comfortable ? 6 : 9
+        return Button {
+            setLineHeight(candidate)
+        } label: {
+            VStack(spacing: gap) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72))
+                        .frame(width: 30, height: 1.5)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 46)
+            .background(isSelected ? palette.accent.opacity(0.12) : palette.quoteFill,
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(candidate.label)行距")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func marginChoice(_ candidate: ReaderMargin) -> some View {
+        let isSelected = margin == candidate
+        let inset: CGFloat = candidate == .narrow ? 4 : candidate == .standard ? 9 : 15
+        return Button {
+            setMargin(candidate)
+        } label: {
+            VStack(spacing: 4) {
+                VStack(spacing: 4) {
+                    Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72)).frame(height: 1.5)
+                    Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72)).frame(height: 1.5)
+                    Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72)).frame(height: 1.5)
+                }
+                .padding(.horizontal, inset)
+                Text(candidate.label).font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(isSelected ? palette.accent : palette.ink)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(isSelected ? palette.accent.opacity(0.12) : palette.quoteFill,
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(candidate.label)页边距")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func appearanceChoice(_ candidate: ReaderAppearance) -> some View {
@@ -659,35 +799,31 @@ private struct ReaderAppearanceSheet: View {
         return Button {
             setAppearance(candidate)
         } label: {
-            VStack(spacing: 5) {
-                Circle()
-                    .fill(LinearGradient(
+            VStack(spacing: 4) {
+                Text("Aa")
+                    .font(.system(size: 14, weight: .semibold, design: .serif))
+                    .foregroundStyle(sample.ink)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .background(LinearGradient(
                         colors: swatchColors,
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
-                    ))
-                    .frame(width: 25, height: 25)
+                    ), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .overlay {
-                        Circle().stroke(sample.ink.opacity(0.28), lineWidth: 0.75)
-                    }
-                    .overlay {
-                        if appearance == candidate {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(sample.accent)
-                        }
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(sample.ink.opacity(0.25), lineWidth: 0.75)
                     }
                 Text(candidate.label)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(appearance == candidate ? palette.accent : palette.ink)
             }
-            .frame(maxWidth: .infinity, minHeight: 54)
+            .frame(maxWidth: .infinity, minHeight: 56)
             .background(
-                appearance == candidate ? palette.accent.opacity(0.10) : palette.quoteFill,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                appearance == candidate ? palette.accent.opacity(0.10) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(appearance == candidate ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
             }
         }
