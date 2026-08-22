@@ -1876,6 +1876,7 @@ async function loadMoreEntries() {
   if (!loaded) return;
   state.entryRenderLimit = state.entries.length;
   renderList();
+  renderSidebar();
   if (el) requestAnimationFrame(() => { el.scrollTop = scrollTop; });
 }
 async function loadContributors() {
@@ -2134,6 +2135,13 @@ function unreadCountFor(pred) {
   return state.entries.filter(e => pred(e) && !state.read.has(e.id)).length;
 }
 
+// 列表按窗口加载（60/120/…），hasMore 时计数只是窗口内统计，用 n+ 表达而非伪装成全量
+function entryWindowCountLabel(count) {
+  const n = Number(count) || 0;
+  if (!n) return '';
+  return state.entryListHasMore ? `${n}+` : String(n);
+}
+
 function renderSidebar() {
   const groups = { article: [], news: [], podcast: [] };
   for (const s of state.sources) if (s.enabled) groups[s.category]?.push(s);
@@ -2163,9 +2171,9 @@ function renderSidebar() {
     }
   }
 
-  $('#count-all').textContent = state.entries.length || '';
-  $('#count-hot').textContent = hotEntryCount() || '';
-  $('#count-unread').textContent = unreadCountFor(() => true) || '';
+  $('#count-all').textContent = entryWindowCountLabel(state.entries.length);
+  $('#count-hot').textContent = entryWindowCountLabel(hotEntryCount());
+  $('#count-unread').textContent = entryWindowCountLabel(unreadCountFor(() => true));
   $('#count-starred').textContent = state.starred.size || '';
   $('#count-history').textContent = state.history.size || '';
   $('#count-contributors').textContent = state.contributors.length || '';
@@ -2231,7 +2239,7 @@ function entryRewriteStatus(entry = state.activeEntry) {
   const readyFlag = entry.rewriteReady !== undefined ? entry.rewriteReady : assets.rewriteReady;
   if (readyFlag === true || raw === 'ready' || raw === 'done' || raw === 'completed') return 'ready';
   if (assetCountForType(entry, 'rewrite') > 0) return 'ready';
-  if (raw === 'failed' || raw === 'error') return 'failed';
+  if (raw === 'failed' || raw === 'error' || raw === 'skipped') return 'failed';
   return 'pending';
 }
 
@@ -2764,8 +2772,7 @@ function renderEntryPaneTabs() {
   tabs.classList.toggle('hidden', !show);
   if (!show) return;
   const assetCount = homeAssetActivityItems(1000).length;
-  const entryCount = state.entries.length;
-  $('#home-entry-count').textContent = entryCount;
+  $('#home-entry-count').textContent = entryWindowCountLabel(state.entries.length);
   $('#home-asset-count').textContent = assetCount;
   $$('#entry-pane-tabs [data-home-tab]').forEach(btn => {
     const active = btn.dataset.homeTab === state.homeTab;
@@ -3362,7 +3369,7 @@ function applyServerEntryUpdate(entry) {
   if (state.activeEntry?.id === entry.id) {
     state.activeEntry = updated;
     renderTitle(updated);
-    renderOriginalContent(updated, updated.content || contentCache.get(updated.id) || '');
+    if (!shouldHoldOriginal(updated)) renderOriginalContent(updated, updated.content || contentCache.get(updated.id) || '');
     updateFetchOriginalButton(updated);
   }
   renderList();
