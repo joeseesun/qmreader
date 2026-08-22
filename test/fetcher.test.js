@@ -68,6 +68,23 @@ test('Product Hunt official candidates are bounded and exclude social or asset h
   assert.ok(candidates.every(url => !/x\.com|unsplash/.test(url)));
 });
 
+test('Product Hunt search discovery prefers an exact official result and rejects directories', () => {
+  const entry = {
+    sourceId: 'producthunt',
+    title: 'Port Radar for macOS',
+    summary: 'An AI port manager for your Mac.',
+  };
+  const html = `
+    <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Ftoolradar.com%2Ftools%2Fport-radar-for-macos">Port Radar for macOS Reviews, Pricing &amp; Alternatives</a>
+    <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fportradar.devmesh.xyz%2F%3Fref%3Dproducthunt">Port Radar for macOS</a>
+    <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.producthunt.com%2Fproducts%2Fport-radar-for-macos">Port Radar for macOS on Product Hunt</a>
+  `;
+  assert.deepEqual(fetcher.__test.productHuntSearchUrlCandidatesFromHtml(entry, html), [
+    'https://portradar.devmesh.xyz/?ref=producthunt',
+  ]);
+  assert.match(fetcher.__test.productHuntSearchUrl(entry), /^https:\/\/html\.duckduckgo\.com\/html\/\?q=/);
+});
+
 test('Product Hunt pages returned by Jina are not accepted as official-site context', async () => {
   const entry = {
     sourceId: 'producthunt',
