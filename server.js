@@ -3605,7 +3605,7 @@ app.post('/api/sources/:id/toggle', requireAdmin, async (req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`QMReader listening on http://${HOST}:${PORT}`);
   seedAdminFromEnv();
-  fetcher.loadDisk();
+  fetcher.loadDisk({ upsert: false });
   scheduleStartupRefresh();
   scheduleDailyRefresh();
   scheduleFreshnessRefresh();
