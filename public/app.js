@@ -707,6 +707,7 @@ const state = {
   entryPaneWidth: readStoredNumber('qm_entry_pane_width'),
   contextPaneWidth: readStoredNumber('qm_context_pane_width'),
   me: null,
+  authReady: false,
   authMode: 'login',
   aiProfiles: [],
   activeAiProfileId: '',
@@ -1260,6 +1261,62 @@ function renderInlineMarkdown(value) {
     .replace(/`([^`]+)`/g, '<code>$1</code>');
 }
 
+function markdownTableCells(value) {
+  let row = String(value || '').trim();
+  if (!row.includes('|')) return null;
+  if (row.startsWith('|')) row = row.slice(1);
+  if (row.endsWith('|') && !row.endsWith('\\|')) row = row.slice(0, -1);
+
+  const cells = [];
+  let cell = '';
+  for (let index = 0; index < row.length; index += 1) {
+    const char = row[index];
+    if (char === '\\' && row[index + 1] === '|') {
+      cell += '|';
+      index += 1;
+      continue;
+    }
+    if (char === '|') {
+      cells.push(cell.trim());
+      cell = '';
+      continue;
+    }
+    cell += char;
+  }
+  cells.push(cell.trim());
+  return cells.length >= 2 ? cells : null;
+}
+
+function markdownTableDivider(cells) {
+  return Boolean(cells && cells.length >= 2 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, ''))));
+}
+
+function markdownTableAlignment(value) {
+  const divider = String(value || '').replace(/\s+/g, '');
+  if (divider.startsWith(':') && divider.endsWith(':')) return 'center';
+  if (divider.endsWith(':')) return 'right';
+  if (divider.startsWith(':')) return 'left';
+  return '';
+}
+
+function renderMarkdownTable(headers, dividers, rows) {
+  const alignments = dividers.map(markdownTableAlignment);
+  const renderCell = (tag, value, index) => {
+    const alignment = alignments[index];
+    const className = alignment ? ` class="md-align-${alignment}"` : '';
+    return `<${tag}${className}>${renderInlineMarkdown(value)}</${tag}>`;
+  };
+  const normalizedRows = rows.map(row => headers.map((_, index) => row[index] || ''));
+  return [
+    '<div class="markdown-table-wrap">',
+    '<table>',
+    `<thead><tr>${headers.map((cell, index) => renderCell('th', cell, index)).join('')}</tr></thead>`,
+    `<tbody>${normalizedRows.map(row => `<tr>${row.map((cell, index) => renderCell('td', cell, index)).join('')}</tr>`).join('')}</tbody>`,
+    '</table>',
+    '</div>',
+  ].join('');
+}
+
 function renderMarkdownLite(value) {
   const escaped = escapeHtml(value).replace(/\r\n/g, '\n').replace(/\n\s*-{3,}\s*\n/g, '\n\n');
   const output = [];
@@ -1283,12 +1340,36 @@ function renderMarkdownLite(value) {
     list = null;
   };
 
-  for (const line of escaped.split('\n')) {
+  const lines = escaped.split('\n');
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     const trimmed = line.trim();
     if (!trimmed) {
       flushParagraph();
       flushQuote();
       flushList();
+      continue;
+    }
+
+    const headerCells = markdownTableCells(trimmed);
+    const dividerCells = markdownTableCells(lines[lineIndex + 1]);
+    if (headerCells
+      && dividerCells
+      && headerCells.length === dividerCells.length
+      && markdownTableDivider(dividerCells)) {
+      flushParagraph();
+      flushQuote();
+      flushList();
+      const rows = [];
+      let nextIndex = lineIndex + 2;
+      for (; nextIndex < lines.length; nextIndex += 1) {
+        if (!lines[nextIndex].trim()) break;
+        const cells = markdownTableCells(lines[nextIndex]);
+        if (!cells) break;
+        rows.push(cells);
+      }
+      output.push(renderMarkdownTable(headerCells, dividerCells, rows));
+      lineIndex = nextIndex - 1;
       continue;
     }
 
@@ -1368,6 +1449,10 @@ function fallbackFavicon(img, letter) {
   img.replaceWith(icon);
 }
 
+function validateFavicon(img, letter) {
+  if (img.naturalWidth <= 1 || img.naturalHeight <= 1) fallbackFavicon(img, letter);
+}
+
 function faviconTargetUrl(siteUrl, domain) {
   const raw = String(siteUrl || '').trim();
   try {
@@ -1386,6 +1471,7 @@ function faviconHtml(siteUrl, name, size = 17) {
   if (!d) return `<span class="letter-icon" style="--icon-size:${safeSize}px">${escapeHtml(letter)}</span>`;
   const src = `/favicons?domain_url=${encodeURIComponent(faviconTargetUrl(siteUrl, d))}&sz=${Math.max(32, safeSize * 4)}`;
   return `<img class="favicon" style="--icon-size:${safeSize}px" src="${escapeHtml(src)}" loading="lazy" referrerpolicy="no-referrer"
+    onload="validateFavicon(this, '${escapeJsString(letter)}')"
     onerror="fallbackFavicon(this, '${escapeJsString(letter)}')" />`;
 }
 
@@ -1704,11 +1790,12 @@ function pollHintedSourceRefresh(sourceId) {
   sourceRefreshPolls.set(id, task);
 }
 
-async function loadEntries() {
+async function loadEntries({ compact = state.view !== 'assets' } = {}) {
   const p = new URLSearchParams();
   if (state.filterSource) p.set('source', state.filterSource);
   if (state.filterCategory) p.set('category', state.filterCategory);
   if (state.q && state.view !== 'assets' && state.view !== 'contributors') p.set('q', state.q);
+  if (compact) p.set('summary', 'compact');
   const data = await api('/api/entries?' + p.toString());
   state.entries = data.entries;
   state.entryRenderLimit = ENTRY_RENDER_BATCH_SIZE;
@@ -1946,16 +2033,22 @@ function recordEntryView(entryId) {
 }
 
 async function loadMe() {
-  const data = await api('/api/me');
-  setCurrentUser(data.user || null);
-  await loadUserEntryStates();
-  loadAiProfilesForScope();
-  renderAuthState();
-  renderEntryStateUi();
-  renderComments();
-  renderAgent();
-  renderAiSettings();
-  return state.me;
+  try {
+    const data = await api('/api/me');
+    setCurrentUser(data.user || null);
+    state.authReady = true;
+    renderAuthState();
+    await loadUserEntryStates();
+    loadAiProfilesForScope();
+    renderEntryStateUi();
+    renderComments();
+    renderAgent();
+    renderAiSettings();
+    return state.me;
+  } finally {
+    state.authReady = true;
+    renderAuthState();
+  }
 }
 
 /* ---------- Sidebar ---------- */
@@ -3175,10 +3268,18 @@ function renderAdminEntryControls() {
 
 function renderAuthState() {
   const loggedIn = Boolean(state.me);
-  $('#auth-open')?.classList.toggle('hidden', loggedIn);
+  const restoring = !state.authReady;
+  const authOpen = $('#auth-open');
+  authOpen?.classList.toggle('hidden', loggedIn);
   $('#account-info')?.classList.toggle('hidden', !loggedIn);
   $('#account-settings-open')?.classList.toggle('hidden', !loggedIn);
-  if (!loggedIn) {
+  if (authOpen && !loggedIn) {
+    authOpen.disabled = restoring;
+    authOpen.innerHTML = restoring
+      ? '<span class="account-avatar">Q</span><span class="account-text"><strong>正在恢复账户…</strong><span>文章可以先阅读</span></span>'
+      : '<span class="account-avatar" id="guest-avatar">Q</span><span class="account-text"><strong>登录 / 注册</strong><span>同步阅读与贡献</span></span>';
+  }
+  if (!loggedIn && !restoring) {
     setAccountMenuOpen(false);
     closeChangePasswordModal();
   }
@@ -7884,8 +7985,9 @@ async function openEntryFromUrl({ reuseLoadedCollections = false } = {}) {
       state.q = '';
     }
     if (!reuseLoadedCollections) {
-      await Promise.all([loadEntries(), loadContributors()]);
-    } else if (route.contributorSort !== 'latest') {
+      if (route.view === 'contributors') await loadContributors();
+      else await loadEntries();
+    } else if (route.view === 'contributors' && !state.contributors.length) {
       await loadContributors();
     }
     updateListTitle();
@@ -7907,7 +8009,8 @@ async function openEntryFromUrl({ reuseLoadedCollections = false } = {}) {
 
 /* ---------- Navigation ---------- */
 async function reload({ keepReader = false, clearUrl = true } = {}) {
-  await Promise.all([loadEntries(), loadContributors()]);
+  if (state.view === 'contributors') await loadContributors();
+  else await loadEntries();
   updateListTitle();
   renderList();
   renderSidebar();
@@ -7954,7 +8057,13 @@ function selectSource(id) {
   state.readerFocus = null;
   state.readerAssetId = '';
   if (nextSource) hintSourceRefresh(nextSource, 'source-select');
-  reload();
+  updateListTitle();
+  renderSidebar();
+  $('#entry-list').innerHTML = '<div class="list-empty">正在切换频道…</div>';
+  void reload().catch(error => {
+    toast('频道加载失败，请稍后重试：' + error.message, 5000);
+    renderList();
+  });
 }
 function selectCategory(cat) {
   state.view = 'all';
@@ -7965,7 +8074,13 @@ function selectCategory(cat) {
   state.contributorSort = 'latest';
   state.readerFocus = null;
   state.readerAssetId = '';
-  reload();
+  updateListTitle();
+  renderSidebar();
+  $('#entry-list').innerHTML = '<div class="list-empty">正在切换分类…</div>';
+  void reload().catch(error => {
+    toast('分类加载失败，请稍后重试：' + error.message, 5000);
+    renderList();
+  });
 }
 function selectView(v) {
   state.view = v;
@@ -7978,10 +8093,16 @@ function selectView(v) {
   if (v !== 'contributors') state.contributorSort = 'latest';
   if (v === 'assets' || v === 'contributors') {
     syncListUrl();
-    reload({ clearUrl: false });
+    void reload({ clearUrl: false }).catch(error => {
+      toast('列表加载失败，请稍后重试：' + error.message, 5000);
+      renderList();
+    });
     return;
   }
-  reload();
+  void reload().catch(error => {
+    toast('文章列表加载失败，请稍后重试：' + error.message, 5000);
+    renderList();
+  });
 }
 
 function goHomeAll() {
@@ -10196,13 +10317,25 @@ $('#reader-pane').addEventListener('scroll', hideArticleLinkMenu, { passive: tru
   setAgentCollapsed(state.agentCollapsed);
   setContextPanel(state.contextPanel, { persist: false, expand: false });
   $('#entry-list').innerHTML = '<div class="list-empty">正在加载订阅内容…</div>';
+  const authTask = loadMe().catch(error => {
+    toast('账户状态暂时无法同步，仍可继续阅读：' + error.message, 5000);
+    return null;
+  });
   try {
-    const [, data] = await Promise.all([
-      loadMe(),
-      loadSources(),
-      loadEntries(),
-      loadContributors(),
-    ]);
+    const route = routeStateFromUrl();
+    let data;
+    if (route.view === 'contributors') {
+      state.contributorSort = route.contributorSort;
+      [data] = await Promise.all([loadSources(), loadContributors()]);
+    } else if (!route.admin && !route.dashboard) {
+      [data] = await Promise.all([
+        loadSources(),
+        loadEntries({ compact: route.view !== 'assets' }),
+      ]);
+    } else {
+      data = await loadSources();
+      await authTask;
+    }
     await openEntryFromUrl({ reuseLoadedCollections: true });
     // first boot: server may still be fetching — poll a few times
     if (data.refreshing || state.entries.length === 0) {
@@ -10212,7 +10345,8 @@ $('#reader-pane').addEventListener('scroll', hideArticleLinkMenu, { passive: tru
         if (!d.refreshing && state.entries.length) break;
         if (!d.refreshing) break;
       }
-      await Promise.all([loadEntries(), loadContributors()]);
+      if (state.view === 'contributors') await loadContributors();
+      else await loadEntries();
       updateListTitle(); renderList(); renderSidebar();
     }
   } catch (e) {

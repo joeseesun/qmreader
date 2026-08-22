@@ -3054,7 +3054,7 @@ app.post('/api/ai/test', requireLogin, async (req, res) => {
 
 // List endpoint omits full content to keep the payload small; fetch it per-entry on open.
 app.get('/api/entries', (req, res) => {
-  const { source, category, q, limit, ready } = req.query;
+  const { source, category, q, limit, ready, summary } = req.query;
   const entries = fetcher.getEntries({
     sourceId: source || undefined,
     category: category || undefined,
@@ -3062,6 +3062,7 @@ app.get('/api/entries', (req, res) => {
     limit: limit ? parseInt(limit, 10) : undefined,
     viewer: req.user,
     requireRewrite: ready === 'rewrite',
+    compact: summary === 'compact',
   }).map(({ content, ...rest }) => rest);
   res.json({ entries });
 });
