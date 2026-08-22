@@ -1795,6 +1795,12 @@ async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.
   if (state.filterSource) p.set('source', state.filterSource);
   if (state.filterCategory) p.set('category', state.filterCategory);
   if (state.q && state.view !== 'assets' && state.view !== 'contributors') p.set('q', state.q);
+  const limit = state.view === 'history' || state.view === 'starred' || state.view === 'assets'
+    ? 400
+    : state.filterSource || state.filterCategory || state.view === 'hot'
+      ? 200
+      : 160;
+  p.set('limit', String(limit));
   if (summary !== 'full') p.set('summary', summary);
   const data = await api('/api/entries?' + p.toString());
   state.entries = data.entries;
