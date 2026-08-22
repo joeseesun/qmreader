@@ -3063,6 +3063,7 @@ app.get('/api/entries', (req, res) => {
     viewer: req.user,
     requireRewrite: ready === 'rewrite',
     compact: summary === 'compact',
+    minimal: summary === 'minimal',
   }).map(({ content, ...rest }) => rest);
   res.json({ entries });
 });

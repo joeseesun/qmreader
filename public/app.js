@@ -1790,12 +1790,12 @@ function pollHintedSourceRefresh(sourceId) {
   sourceRefreshPolls.set(id, task);
 }
 
-async function loadEntries({ compact = state.view !== 'assets' } = {}) {
+async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.view === 'hot' ? 'compact' : 'minimal' } = {}) {
   const p = new URLSearchParams();
   if (state.filterSource) p.set('source', state.filterSource);
   if (state.filterCategory) p.set('category', state.filterCategory);
   if (state.q && state.view !== 'assets' && state.view !== 'contributors') p.set('q', state.q);
-  if (compact) p.set('summary', 'compact');
+  if (summary !== 'full') p.set('summary', summary);
   const data = await api('/api/entries?' + p.toString());
   state.entries = data.entries;
   state.entryRenderLimit = ENTRY_RENDER_BATCH_SIZE;
@@ -10330,7 +10330,7 @@ $('#reader-pane').addEventListener('scroll', hideArticleLinkMenu, { passive: tru
     } else if (!route.admin && !route.dashboard) {
       [data] = await Promise.all([
         loadSources(),
-        loadEntries({ compact: route.view !== 'assets' }),
+        loadEntries({ summary: route.view === 'assets' ? 'full' : 'minimal' }),
       ]);
     } else {
       data = await loadSources();

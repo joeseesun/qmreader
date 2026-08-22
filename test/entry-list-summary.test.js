@@ -65,3 +65,12 @@ test('deleted entry ids are resolved in one bulk lookup', () => {
   assert.deepEqual([...store.getDeletedEntryIds(['active-entry', 'deleted-entry', 'missing-entry'])], ['deleted-entry']);
   assert.ok(store.getDeletedEntryIds().has('deleted-entry'));
 });
+
+test('minimal readiness summaries expose only translation and rewrite availability', () => {
+  const summary = store.getEntryReadinessSummaries(['compact-summary-entry'])['compact-summary-entry'];
+  assert.equal(summary.translation, true);
+  assert.equal(summary.rewrite, true);
+  assert.equal(summary.comments, 0);
+  assert.equal(Object.hasOwn(summary, 'preview'), false);
+  assert.equal(Object.hasOwn(summary, 'helpfulCount'), false);
+});
