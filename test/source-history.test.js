@@ -54,6 +54,15 @@ test('source history treats malformed cursors as the first page', () => {
   assert.deepEqual(page.entries.map(item => item.id), ['entry-e', 'entry-d']);
 });
 
+test('recent entries are globally ordered and scoped to enabled source ids', () => {
+  const rows = store.getRecentEntries({ sourceIds: ['source-a', 'source-b'], limit: 3 });
+  assert.deepEqual(rows.map(item => item.id), ['other-source', 'entry-e', 'entry-d']);
+
+  store.softDeleteEntry('entry-e', { reason: 'test' });
+  const activeRows = store.getRecentEntries({ sourceIds: ['source-a'], limit: 3 });
+  assert.deepEqual(activeRows.map(item => item.id), ['entry-d', 'entry-c', 'entry-b']);
+});
+
 test('rewrite-ready history publishes only entries with a completed rewrite', () => {
   store.upsertEntries([
     entry('ready-entry', 'source-ready', 7_000),
