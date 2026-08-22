@@ -5336,6 +5336,8 @@ async function loadRewrite(entry) {
     if (data.rewrite && data.rewrite.body) {
       updateEntryAssets(entry.id, entryAssetHelpfulPatch('rewrite', data.rewrite), { rerenderList: false });
       renderList();
+    } else if (state.readerTab === 'rewrite' && state.readerFocus !== 'rewrite') {
+      setReaderTab('original');
     }
   } catch {
     renderRewrite(null);
