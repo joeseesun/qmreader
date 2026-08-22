@@ -48,3 +48,19 @@ test('compact entry summaries preserve list badges without loading preview bodie
   assert.equal(Object.hasOwn(summary, 'preview'), false);
   assert.equal(Object.hasOwn(summary, 'items'), false);
 });
+
+test('deleted entry ids are resolved in one bulk lookup', () => {
+  store.upsertEntries([
+    {
+      id: 'active-entry', sourceId: 'test-source', title: 'Active', link: 'https://example.com/active',
+      published: new Date(20_000).toISOString(), publishedTs: 20_000, summary: '', content: '<p>Active</p>',
+    },
+    {
+      id: 'deleted-entry', sourceId: 'test-source', title: 'Deleted', link: 'https://example.com/deleted',
+      published: new Date(19_000).toISOString(), publishedTs: 19_000, summary: '', content: '<p>Deleted</p>',
+    },
+  ]);
+  store.softDeleteEntry('deleted-entry', { reason: 'test' });
+
+  assert.deepEqual([...store.getDeletedEntryIds(['active-entry', 'deleted-entry', 'missing-entry'])], ['deleted-entry']);
+});
