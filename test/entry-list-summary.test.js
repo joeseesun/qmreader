@@ -74,3 +74,31 @@ test('minimal readiness summaries expose only translation and rewrite availabili
   assert.equal(Object.hasOwn(summary, 'preview'), false);
   assert.equal(Object.hasOwn(summary, 'helpfulCount'), false);
 });
+
+test('rewrite status summaries expose the latest durable queue state', () => {
+  const entryId = 'queued-summary-entry';
+  store.upsertEntries([{
+    id: entryId,
+    sourceId: 'test-source',
+    title: 'Queued rewrite',
+    link: 'https://example.com/queued-rewrite',
+    publishedTs: 30_000,
+    summary: 'Waiting for a rewrite.',
+    content: '<p>Waiting for a rewrite.</p>',
+  }]);
+  store.enqueueRewriteJob(entryId, {
+    sourceId: 'test-source',
+    contentHash: 'queued-hash',
+    reason: 'test status',
+  });
+
+  const pending = store.getRewriteStatusSummaries([entryId])[entryId];
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.attempts, 0);
+
+  const claimed = store.claimRewriteJob('summary-test-worker');
+  store.finishRewriteJob(claimed.id, 'summary-test-worker', 'failed', 'test failure');
+  const failed = store.getRewriteStatusSummaries([entryId])[entryId];
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.attempts, 1);
+});

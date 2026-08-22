@@ -121,6 +121,7 @@ const DEFAULT_AGENT_PROMPTS = AI_READING_TASKS
 const AGENT_PROMPT_LIMIT = 24;
 const PERSONA_AGENT_VERSION = 'persona-qmreader-v1';
 const ENTRY_RENDER_BATCH_SIZE = 100;
+const ENTRY_LIST_PAGE_SIZE = 60;
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const LUCIDE_DEFAULT_ATTRS = {
   xmlns: 'http://www.w3.org/2000/svg',
@@ -481,7 +482,7 @@ function updateRewriteUiLabels(entry = state.activeEntry) {
   const section = $('#rewrite-section-label');
   if (section) section.textContent = copy.section;
   const emptyText = $('#rewrite-empty p');
-  if (emptyText) emptyText.textContent = copy.empty;
+  if (emptyText && !shouldHoldOriginal()) emptyText.textContent = copy.empty;
   const copyBtn = $('#rewrite-copy');
   if (copyBtn) {
     copyBtn.title = copy.copyTitle;
@@ -611,6 +612,10 @@ const state = {
   sources: [],
   entries: [],
   entryRenderLimit: ENTRY_RENDER_BATCH_SIZE,
+  entryListScope: '',
+  entryListLimit: ENTRY_LIST_PAGE_SIZE,
+  entryListHasMore: false,
+  entriesLoadingMore: false,
   contributors: [],
   adminSubmissionUsers: [],
   adminSubmissionRequests: [],
@@ -677,6 +682,7 @@ const state = {
   rewriteGenerating: false,
   pendingRewriteGenerate: false,
   readerTab: 'original',
+  originalRevealed: false,
   defaultReaderTab: DEFAULT_READER_OPEN_TAB,
   profileDefaultReaderTabDraft: DEFAULT_READER_OPEN_TAB,
   readerPrefs: normalizeReaderPrefs(readJson('qm_reader_prefs', JSON.stringify(READER_PREF_DEFAULTS))),
@@ -1790,21 +1796,87 @@ function pollHintedSourceRefresh(sourceId) {
   sourceRefreshPolls.set(id, task);
 }
 
-async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.view === 'hot' ? 'compact' : 'minimal' } = {}) {
+const ENTRY_LIST_FIXED_VIEWS = ['history', 'starred', 'assets'];
+let entriesRequestSeq = 0;
+let entriesAbortController = null;
+let listReloadSeq = 0;
+const listScrollPositions = new Map();
+
+function entryListWindowed() {
+  return !ENTRY_LIST_FIXED_VIEWS.includes(state.view);
+}
+
+function entryListScopeKey() {
+  return [state.view, state.filterSource || '', state.filterCategory || '', state.q || ''].join('|');
+}
+
+async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.view === 'hot' ? 'compact' : 'minimal', growWindow = false } = {}) {
+  const scopeKey = entryListScopeKey();
+  if (scopeKey !== state.entryListScope) {
+    state.entryListScope = scopeKey;
+    state.entryListLimit = ENTRY_LIST_PAGE_SIZE;
+  } else if (growWindow && entryListWindowed()) {
+    state.entryListLimit += ENTRY_LIST_PAGE_SIZE;
+  }
   const p = new URLSearchParams();
   if (state.filterSource) p.set('source', state.filterSource);
   if (state.filterCategory) p.set('category', state.filterCategory);
   if (state.q && state.view !== 'assets' && state.view !== 'contributors') p.set('q', state.q);
-  const limit = state.view === 'history' || state.view === 'starred' || state.view === 'assets'
-    ? 400
-    : state.filterSource || state.filterCategory || state.view === 'hot'
-      ? 200
-      : 160;
+  const limit = entryListWindowed() ? state.entryListLimit : 400;
   p.set('limit', String(limit));
   if (summary !== 'full') p.set('summary', summary);
-  const data = await api('/api/entries?' + p.toString());
+  if (entriesAbortController) entriesAbortController.abort();
+  const controller = new AbortController();
+  entriesAbortController = controller;
+  const seq = ++entriesRequestSeq;
+  let data;
+  try {
+    data = await api('/api/entries?' + p.toString(), { signal: controller.signal });
+  } catch (err) {
+    if (err && err.name === 'AbortError') return false;
+    throw err;
+  }
+  if (seq !== entriesRequestSeq) return false;
   state.entries = data.entries;
   state.entryRenderLimit = ENTRY_RENDER_BATCH_SIZE;
+  state.entryListHasMore = entryListWindowed() && Array.isArray(data.entries) && data.entries.length >= limit;
+  return true;
+}
+
+function setEntryListUpdating(updating) {
+  const el = $('#entry-list');
+  if (!el) return;
+  el.classList.toggle('entry-list-updating', Boolean(updating));
+  el.setAttribute('aria-busy', updating ? 'true' : 'false');
+}
+
+function restoreEntryListScroll() {
+  const el = $('#entry-list');
+  if (!el) return;
+  const saved = listScrollPositions.get(entryListScopeKey()) || 0;
+  requestAnimationFrame(() => { el.scrollTop = saved; });
+}
+
+async function loadMoreEntries() {
+  if (state.entriesLoadingMore || !state.entryListHasMore) return;
+  state.entriesLoadingMore = true;
+  const el = $('#entry-list');
+  const scrollTop = el ? el.scrollTop : 0;
+  renderList();
+  let loaded = false;
+  try {
+    loaded = (await loadEntries({ growWindow: true })) !== false;
+  } catch (err) {
+    state.entriesLoadingMore = false;
+    renderList();
+    toast('加载更早文章失败：' + err.message, 4000);
+    return;
+  }
+  state.entriesLoadingMore = false;
+  if (!loaded) return;
+  state.entryRenderLimit = state.entries.length;
+  renderList();
+  if (el) requestAnimationFrame(() => { el.scrollTop = scrollTop; });
 }
 async function loadContributors() {
   const p = new URLSearchParams({ limit: '200' });
@@ -2137,6 +2209,44 @@ function assetCountForType(entry, type) {
 function entryHasAssetType(entry, type) {
   if (ASSET_FILTER_TYPES.includes(type)) return assetCountForType(entry, type) > 0;
   return hasEntryAssets(entry);
+}
+
+function isChineseNativeEntry(entry = state.activeEntry) {
+  if (!entry) return false;
+  const declared = String(entry.language || entry.lang || '').trim().toLowerCase();
+  if (declared) return declared === 'zh' || declared.startsWith('zh-') || declared.startsWith('zh_') || declared === 'cmn';
+  const sample = [entry.title, entry.summary].filter(Boolean).join('\n');
+  const cjk = (sample.match(/[㐀-鿿豈-﫿]/g) || []).length;
+  const latin = (sample.match(/[A-Za-z]/g) || []).length;
+  if (!cjk && !latin) return false;
+  return cjk >= 8 && cjk / Math.max(1, cjk + latin) >= 0.3;
+}
+
+function entryRewriteStatus(entry = state.activeEntry) {
+  // 'native' | 'ready' | 'failed' | 'pending'
+  if (!entry) return 'pending';
+  if (isChineseNativeEntry(entry)) return 'native';
+  const assets = entry.assets && typeof entry.assets === 'object' ? entry.assets : {};
+  const raw = String(entry.rewriteStatus || assets.rewriteStatus || '').trim().toLowerCase();
+  const readyFlag = entry.rewriteReady !== undefined ? entry.rewriteReady : assets.rewriteReady;
+  if (readyFlag === true || raw === 'ready' || raw === 'done' || raw === 'completed') return 'ready';
+  if (assetCountForType(entry, 'rewrite') > 0) return 'ready';
+  if (raw === 'failed' || raw === 'error') return 'failed';
+  return 'pending';
+}
+
+function rewriteStatusBadgeHtml(entry) {
+  const status = entryRewriteStatus(entry);
+  if (status === 'pending') return '<span class="entry-rewrite-status">中文处理中</span>';
+  if (status === 'failed') return '<span class="entry-rewrite-status entry-rewrite-status-failed">改写暂不可用</span>';
+  return '';
+}
+
+function shouldHoldOriginal(entry = state.activeEntry) {
+  if (!entry || state.originalRevealed) return false;
+  if (state.readerTab !== 'rewrite') return false;
+  const status = entryRewriteStatus(entry);
+  return status === 'pending' || status === 'failed';
 }
 
 function normalizeSearchText(value) {
@@ -3637,6 +3747,7 @@ function renderList() {
             <span class="src">${escapeHtml(sourceName)}</span>
           </div>
           <time class="entry-time" datetime="${escapeHtml(e.published || '')}">${escapeHtml(publishedLabel)}</time>
+          ${rewriteStatusBadgeHtml(e)}
           ${state.starred.has(e.id) ? `<span class="entry-star">${lucideIcon('star')}</span>` : ''}
         </div>
         <div class="entry-title">${escapeHtml(e.titleZh || e.title)}</div>
@@ -3720,6 +3831,15 @@ function renderList() {
       });
     };
     frag.appendChild(more);
+  } else if (state.entryListHasMore) {
+    const earlier = document.createElement('button');
+    earlier.type = 'button';
+    earlier.className = 'list-load-more list-load-earlier';
+    earlier.disabled = state.entriesLoadingMore;
+    earlier.textContent = state.entriesLoadingMore ? '正在加载…' : '加载更早文章';
+    earlier.setAttribute('aria-label', state.entriesLoadingMore ? '正在加载更早文章' : '加载更早文章');
+    earlier.onclick = () => { void loadMoreEntries(); };
+    frag.appendChild(earlier);
   }
   el.appendChild(frag);
 }
@@ -5036,7 +5156,15 @@ function handleReaderTab(tab, { preserveFocus = false, replaceUrl = true } = {})
     state.readerFocus = null;
     state.readerAssetId = '';
   }
-  setReaderTab(tab, { replaceUrl });
+  const next = normalizeReaderTab(tab);
+  if (next === 'original' && state.activeEntry && !state.originalRevealed) {
+    const status = entryRewriteStatus(state.activeEntry);
+    if (status === 'pending' || status === 'failed') {
+      void revealOriginalForEntry();
+      return;
+    }
+  }
+  setReaderTab(next, { replaceUrl });
 }
 
 function maybeGenerateRewriteAfterLoad() {
@@ -5274,6 +5402,51 @@ function rewriteMetaText(rewrite) {
   ].filter(Boolean).join(' · ');
 }
 
+function restoreRewriteEmptyCopy() {
+  const empty = $('#rewrite-empty');
+  if (!empty) return;
+  empty.innerHTML = `<p>${escapeHtml(rewriteUiCopy().empty)}</p>`;
+}
+
+function renderRewriteAvailabilityPlaceholder(entry = state.activeEntry) {
+  const empty = $('#rewrite-empty');
+  if (!empty) return false;
+  const status = entryRewriteStatus(entry);
+  if (status !== 'pending' && status !== 'failed') return false;
+  const failed = status === 'failed';
+  empty.innerHTML = `
+    <p>${failed ? '中文改写暂不可用' : '中文处理中…'}</p>
+    <p class="rewrite-pending-hint">${failed ? '可以稍后再来看，或直接阅读英文原文。' : '改写完成后会自动显示在这里，也可以先看英文原文。'}</p>
+    <button type="button" id="rewrite-view-original" class="rewrite-view-original">查看英文原文</button>
+  `;
+  empty.classList.remove('hidden');
+  const btn = $('#rewrite-view-original');
+  if (btn) btn.onclick = () => { void revealOriginalForEntry(); };
+  return true;
+}
+
+async function revealOriginalForEntry() {
+  const entry = state.activeEntry;
+  if (!entry) return;
+  state.originalRevealed = true;
+  restoreRewriteEmptyCopy();
+  setReaderTab('original');
+  let content = contentCache.get(entry.id) || entry.content;
+  if (!content) {
+    $('#reader-content').innerHTML = '<p style="color:var(--text-2)">加载内容中…</p>';
+    try {
+      const data = await api(`/api/entry/${entry.id}`);
+      if (state.activeEntry?.id !== entry.id) return;
+      if (data.entry) state.activeEntry = { ...state.activeEntry, ...data.entry };
+      content = data.entry && data.entry.content;
+      contentCache.set(entry.id, content || '');
+    } catch { /* fall through to summary */ }
+    if (state.activeEntry?.id !== entry.id) return;
+  }
+  renderOriginalContent(state.activeEntry || entry, content);
+  updateFetchOriginalButton(state.activeEntry || entry);
+}
+
 function renderRewrite(rewrite) {
   state.rewrite = rewrite || null;
   const copyTextForEntry = rewriteUiCopy();
@@ -5337,7 +5510,7 @@ async function loadRewrite(entry) {
       updateEntryAssets(entry.id, entryAssetHelpfulPatch('rewrite', data.rewrite), { rerenderList: false });
       renderList();
     } else if (state.readerTab === 'rewrite' && state.readerFocus !== 'rewrite') {
-      setReaderTab('original');
+      if (!renderRewriteAvailabilityPlaceholder(entry)) setReaderTab('original');
     }
   } catch {
     renderRewrite(null);
@@ -5482,6 +5655,7 @@ async function fetchOriginalContent() {
   }
   state.fetchingOriginal = true;
   updateFetchOriginalButton(entry);
+  state.originalRevealed = true;
   setReaderTab('original');
   $('#reader-content').innerHTML = '<p style="color:var(--text-2)">正在获取原文内容…</p>';
   try {
@@ -7778,7 +7952,9 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
     ? 'translation'
     : requestedFocus === 'rewrite'
       ? 'rewrite'
-      : normalizeReaderOpenTab(tab);
+      : !tab && entryRewriteStatus(e) !== 'native'
+        ? 'rewrite'
+        : normalizeReaderOpenTab(tab);
   state.read.add(e.id);
   recordEntryView(e.id);
   syncEntryState(e.id, { read: true, viewed: true });
@@ -7791,6 +7967,7 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
   $('#reader-source').innerHTML = `${src ? faviconHtml(src.siteUrl, src.name, 14) : ''}<span>${escapeHtml(src ? src.name : '')}</span>`;
   renderTitle(e);
   updateRewriteUiLabels(e);
+  restoreRewriteEmptyCopy();
   document.title = readerRouteTitle(e, requestedFocus);
   const publishedTime = friendlyDateTime(e.publishedTs || Date.parse(e.published || ''));
   $('#reader-meta').textContent = [e.author, publishedTime].filter(Boolean).join(' · ');
@@ -7813,6 +7990,7 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
   state.rewriteLoading = false;
   state.rewriteGenerating = false;
   state.pendingRewriteGenerate = false;
+  state.originalRevealed = false;
   state.readerFocus = requestedFocus;
   state.readerAssetId = requestedAssetId;
   state.readerAssetsExpanded = false;
@@ -7832,6 +8010,7 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
   renderReaderAssetSummary(e);
   updateFetchOriginalButton(e);
   setReaderTab(requestedTab, { syncUrl: false });
+  if (shouldHoldOriginal(e)) renderRewriteAvailabilityPlaceholder(e);
   loadTranslation(e);
   loadRewrite(e);
   loadAnnotations(e);
@@ -7864,8 +8043,9 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
     } catch { /* fall through to summary */ }
     if (state.activeEntry?.id !== e.id) return; // user moved on
   }
-  renderOriginalContent(state.activeEntry || e, content);
-  updateFetchOriginalButton(state.activeEntry || e);
+  const loadedEntry = state.activeEntry || e;
+  if (!shouldHoldOriginal(loadedEntry)) renderOriginalContent(loadedEntry, content);
+  updateFetchOriginalButton(loadedEntry);
   if (state.translation && state.activeEntry?.id === e.id) renderTranslation(state.translation);
 }
 
@@ -7895,6 +8075,8 @@ function closeReaderFromRoute({ rerenderList = true } = {}) {
   state.pendingChatMessageId = '';
   state.fetchingOriginal = false;
   state.readerTab = 'original';
+  state.originalRevealed = false;
+  restoreRewriteEmptyCopy();
   $('#reader').classList.add('hidden');
   $('#reader-empty').classList.remove('hidden');
   renderAdminEntryControls();
@@ -8017,11 +8199,20 @@ async function openEntryFromUrl({ reuseLoadedCollections = false } = {}) {
 
 /* ---------- Navigation ---------- */
 async function reload({ keepReader = false, clearUrl = true } = {}) {
-  if (state.view === 'contributors') await loadContributors();
-  else await loadEntries();
+  const listUpdating = state.view !== 'contributors';
+  const reloadSeq = listUpdating ? ++listReloadSeq : 0;
+  if (listUpdating) setEntryListUpdating(true);
+  try {
+    if (state.view === 'contributors') await loadContributors();
+    else await loadEntries();
+  } finally {
+    // 若已有更新的 reload 在途，updating 状态交给它收尾，避免提前清除
+    if (listUpdating && reloadSeq === listReloadSeq) setEntryListUpdating(false);
+  }
   updateListTitle();
   renderList();
   renderSidebar();
+  if (listUpdating) restoreEntryListScroll();
   if (!keepReader) {
     setWorkspacePage('');
     state.activeEntry = null;
@@ -8046,6 +8237,7 @@ async function reload({ keepReader = false, clearUrl = true } = {}) {
     state.pendingAnnotationId = '';
     state.fetchingOriginal = false;
     state.readerTab = 'original';
+    state.originalRevealed = false;
     $('#reader').classList.add('hidden');
     $('#reader-empty').classList.remove('hidden');
     document.getElementById('app').classList.remove('reading');
@@ -8067,7 +8259,6 @@ function selectSource(id) {
   if (nextSource) hintSourceRefresh(nextSource, 'source-select');
   updateListTitle();
   renderSidebar();
-  $('#entry-list').innerHTML = '<div class="list-empty">正在切换频道…</div>';
   void reload().catch(error => {
     toast('频道加载失败，请稍后重试：' + error.message, 5000);
     renderList();
@@ -8084,7 +8275,6 @@ function selectCategory(cat) {
   state.readerAssetId = '';
   updateListTitle();
   renderSidebar();
-  $('#entry-list').innerHTML = '<div class="list-empty">正在切换分类…</div>';
   void reload().catch(error => {
     toast('分类加载失败，请稍后重试：' + error.message, 5000);
     renderList();
@@ -9455,6 +9645,17 @@ $('#entry-list').onclick = async (e) => {
   if (!btn) return;
   await openAssetActivityButton(btn);
 };
+{
+  let scrollSaveFrame = 0;
+  $('#entry-list').addEventListener('scroll', (e) => {
+    if (scrollSaveFrame) return;
+    const el = e.currentTarget;
+    scrollSaveFrame = requestAnimationFrame(() => {
+      scrollSaveFrame = 0;
+      listScrollPositions.set(entryListScopeKey(), el.scrollTop);
+    });
+  }, { passive: true });
+}
 $('#refresh-btn').onclick = refreshAll;
 $('#source-refresh-btn').onclick = refreshCurrentSource;
 $('#reader-pane').addEventListener('pointerdown', (e) => {

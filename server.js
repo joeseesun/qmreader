@@ -38,6 +38,9 @@ const DOMPURIFY_VERSION = JSON.parse(fs.readFileSync(
   'utf8',
 )).version;
 const REFRESH_WORKER_PATH = path.join(__dirname, 'scripts', 'refresh-worker.js');
+const ENTRY_LIST_CACHE_TTL_MS = Math.max(1000, parseInt(process.env.ENTRY_LIST_CACHE_TTL_MS || '15000', 10) || 15000);
+const ENTRY_LIST_CACHE_MAX = 48;
+const entryListCache = new Map();
 const DEFAULT_TITLE = 'QMReader · RSS 阅读器';
 const DEFAULT_DESCRIPTION = '围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。';
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -2259,6 +2262,7 @@ function backgroundJobState() {
 function reloadFetcherAfterWorker() {
   try {
     fetcher.loadDisk({ upsert: false });
+    entryListCache.clear();
   } catch (error) {
     console.warn('Reload refreshed cache skipped:', error.message || error);
   }
@@ -3055,6 +3059,16 @@ app.post('/api/ai/test', requireLogin, async (req, res) => {
 // List endpoint omits full content to keep the payload small; fetch it per-entry on open.
 app.get('/api/entries', (req, res) => {
   const { source, category, q, limit, ready, summary } = req.query;
+  const cacheable = summary === 'minimal' && !String(q || '').trim();
+  const cacheKey = cacheable
+    ? JSON.stringify({ source: source || '', category: category || '', limit: limit || '', ready: ready || '' })
+    : '';
+  const cached = cacheKey ? entryListCache.get(cacheKey) : null;
+  if (cached && cached.expiresAt > Date.now()) {
+    res.setHeader('X-QMReader-Cache', 'HIT');
+    return res.json(cached.payload);
+  }
+  if (cached) entryListCache.delete(cacheKey);
   const entries = fetcher.getEntries({
     sourceId: source || undefined,
     category: category || undefined,
@@ -3065,7 +3079,16 @@ app.get('/api/entries', (req, res) => {
     compact: summary === 'compact',
     minimal: summary === 'minimal',
   }).map(({ content, ...rest }) => rest);
-  res.json({ entries });
+  const payload = { entries };
+  if (cacheKey) {
+    if (entryListCache.size >= ENTRY_LIST_CACHE_MAX) {
+      const oldestKey = entryListCache.keys().next().value;
+      if (oldestKey) entryListCache.delete(oldestKey);
+    }
+    entryListCache.set(cacheKey, { payload, expiresAt: Date.now() + ENTRY_LIST_CACHE_TTL_MS });
+    res.setHeader('X-QMReader-Cache', 'MISS');
+  }
+  return res.json(payload);
 });
 
 app.get('/api/sources/:id/entries', (req, res) => {
@@ -3236,6 +3259,7 @@ app.post('/api/entry/:id/rewrite', requireLogin, async (req, res) => {
       userId: req.user.id,
       force: Boolean(req.body && req.body.force),
     });
+    entryListCache.clear();
     res.json({
       ...result,
       rewrite: rewriteResponse(prepared.entry, req.user) || result.rewrite,
