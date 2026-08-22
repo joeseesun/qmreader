@@ -63,4 +63,5 @@ test('deleted entry ids are resolved in one bulk lookup', () => {
   store.softDeleteEntry('deleted-entry', { reason: 'test' });
 
   assert.deepEqual([...store.getDeletedEntryIds(['active-entry', 'deleted-entry', 'missing-entry'])], ['deleted-entry']);
+  assert.ok(store.getDeletedEntryIds().has('deleted-entry'));
 });
