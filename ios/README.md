@@ -15,3 +15,11 @@ xcodebuild \
 ```
 
 默认签名团队是 `BRCU3DPFH4`，Bundle ID 是 `ai.qiaomu.qmreader`，最低系统版本为 iOS 17。
+
+## 阅读逻辑测试
+
+站内 canonical 分享链接与旧字体设置迁移可脱离 UI 独立验证：
+
+```bash
+./run-reader-logic-tests.sh
+```

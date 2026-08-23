@@ -1,37 +1,63 @@
 import SwiftUI
 import UIKit
-import CoreText
 import OSLog
 
+/// 阅读正文字体。除苹方外均为随包内置的开源字体（见 Fonts/Licenses），
+/// 通过 Info.plist 的 UIAppFonts 注册，只携带 Regular 字重；
+/// 标题层级靠字号建立，渲染端会对缺失的粗体做合成加粗。
 enum ReaderTypeface: String, CaseIterable, Identifiable {
     case pingFang
-    case songti
-    case kaiti
+    case lxgwWenKaiGB
+    case lxgwWenKaiTC
+    case zhuqueFangsong
+    case sourceHanSerif
+    case wenJinMincho
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .pingFang: "苹方"
-        case .songti: "宋体"
-        case .kaiti: "楷体"
+        case .lxgwWenKaiGB: "霞鹜文楷"
+        case .lxgwWenKaiTC: "霞鹜文楷 TC"
+        case .zhuqueFangsong: "朱雀仿宋"
+        case .sourceHanSerif: "思源宋体"
+        case .wenJinMincho: "文津宋体"
         }
     }
 
-    var sample: String {
+    /// 字体卡片上的一行性格描述。
+    var trait: String {
         switch self {
-        case .pingFang: "阅"
-        case .songti: "读"
-        case .kaiti: "书"
+        case .pingFang: "系统默认 · 清爽中性"
+        case .lxgwWenKaiGB: "楷体 · 温润书卷气"
+        case .lxgwWenKaiTC: "传统字形 · 古雅"
+        case .zhuqueFangsong: "仿宋 · 纤秀挺拔"
+        case .sourceHanSerif: "宋体 · 端正耐看"
+        case .wenJinMincho: "明朝体 · 旧籍韵味"
         }
     }
+
+    var sample: String { "山高水长" }
 
     var isAvailable: Bool {
-        postScriptNames.allSatisfy { UIFont(name: $0, size: 17) != nil }
+        switch self {
+        case .pingFang:
+            true
+        default:
+            UIFont(name: postScriptName, size: 17) != nil
+        }
     }
 
-    var postScriptNames: [String] {
-        [postScriptName(weight: .regular), postScriptName(weight: .semibold)]
+    var postScriptName: String {
+        switch self {
+        case .pingFang: "PingFangSC-Regular"
+        case .lxgwWenKaiGB: "LXGWWenKaiGBLite-Regular"
+        case .lxgwWenKaiTC: "LXGWWenKaiTC-Regular"
+        case .zhuqueFangsong: "ZhuqueFangsong-Regular"
+        case .sourceHanSerif: "SourceHanSerifCN-Regular"
+        case .wenJinMincho: "WenJinMinchoP0-Regular"
+        }
     }
 
     func font(
@@ -39,80 +65,20 @@ enum ReaderTypeface: String, CaseIterable, Identifiable {
         weight: Font.Weight = .regular,
         relativeTo style: Font.TextStyle = .body
     ) -> Font {
-        let name = postScriptName(weight: weight)
-        guard UIFont(name: name, size: size) != nil else {
-            ReaderFontLog.logger.error("Font unavailable: \(name, privacy: .public)")
-            return .system(size: size, weight: weight)
-        }
-        return .custom(name, size: size, relativeTo: style)
-    }
-
-    private func postScriptName(weight: Font.Weight) -> String {
-        let emphasized = weight == .medium || weight == .semibold || weight == .bold
         switch self {
         case .pingFang:
-            return emphasized ? "PingFangSC-Semibold" : "PingFangSC-Regular"
-        case .songti:
-            return emphasized ? "STSongti-SC-Bold" : "STSongti-SC-Regular"
-        case .kaiti:
-            return emphasized ? "STKaitiSC-Bold" : "STKaitiSC-Regular"
-        }
-    }
-}
-
-@MainActor
-final class ReaderFontStore: ObservableObject {
-    @Published private(set) var downloading: ReaderTypeface?
-    @Published private(set) var revision = 0
-    @Published private(set) var errorMessage: String?
-
-    func refresh() {
-        revision += 1
-    }
-
-    func request(_ typeface: ReaderTypeface, completion: @escaping (Bool) -> Void) {
-        guard downloading == nil else { return }
-        guard !typeface.isAvailable else {
-            errorMessage = nil
-            refresh()
-            completion(true)
-            return
-        }
-
-        downloading = typeface
-        errorMessage = nil
-        let descriptors = typeface.postScriptNames.map { name in
-            CTFontDescriptorCreateWithAttributes([
-                kCTFontNameAttribute: name,
-            ] as CFDictionary)
-        }
-        var failed = false
-        let started = CTFontDescriptorMatchFontDescriptorsWithProgressHandler(
-            descriptors as CFArray,
-            nil
-        ) { [weak self] state, _ in
-            switch state {
-            case .didFailWithError:
-                failed = true
-            case .didFinish:
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    let succeeded = !failed && typeface.isAvailable
-                    self.downloading = nil
-                    self.errorMessage = succeeded ? nil : "字体下载失败，请检查网络后重试"
-                    self.refresh()
-                    completion(succeeded)
-                }
-            default:
-                break
+            let emphasized = weight == .medium || weight == .semibold || weight == .bold
+            let name = emphasized ? "PingFangSC-Semibold" : "PingFangSC-Regular"
+            guard UIFont(name: name, size: size) != nil else {
+                return .system(size: size, weight: weight)
             }
-            return true
-        }
-
-        if !started {
-            downloading = nil
-            errorMessage = "字体暂时不可下载"
-            completion(false)
+            return .custom(name, size: size, relativeTo: style)
+        default:
+            guard UIFont(name: postScriptName, size: size) != nil else {
+                ReaderFontLog.logger.error("Bundled font unavailable: \(postScriptName, privacy: .public)")
+                return .system(size: size, weight: weight)
+            }
+            return .custom(postScriptName, size: size, relativeTo: style).weight(weight)
         }
     }
 }
@@ -185,6 +151,17 @@ enum ReaderAppearance: String, CaseIterable, Identifiable {
         case .white: "素白"
         case .eyeCare: "护眼"
         case .night: "深夜"
+        }
+    }
+
+    /// 背景卡片上的用途说明。
+    var purpose: String {
+        switch self {
+        case .system: "跟随系统外观"
+        case .paper: "暖纸 · 长时间阅读"
+        case .white: "明亮清爽"
+        case .eyeCare: "柔绿低刺激"
+        case .night: "夜间低亮度"
         }
     }
 

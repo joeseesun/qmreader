@@ -18,6 +18,14 @@
 		01000000000000000000000A /* SystemTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000B /* SystemTranslation.swift */; };
 		01000000000000000000000B /* ChannelViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000C /* ChannelViews.swift */; };
 		01000000000000000000000C /* ReaderSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000D /* ReaderSettings.swift */; };
+		01000000000000000000000D /* ArticleShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000E /* ArticleShare.swift */; };
+		01000000000000000000000E /* ReaderTypefaceMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02000000000000000000000F /* ReaderTypefaceMigration.swift */; };
+		01000000000000000000000F /* LXGWWenKaiGBLite-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000010 /* LXGWWenKaiGBLite-Regular.ttf */; };
+		010000000000000000000010 /* LXGWWenKaiTC-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000011 /* LXGWWenKaiTC-Regular.ttf */; };
+		010000000000000000000011 /* LXGWZhuqueFangsong-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000012 /* LXGWZhuqueFangsong-Regular.ttf */; };
+		010000000000000000000012 /* SourceHanSerifCN-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000013 /* SourceHanSerifCN-Regular.otf */; };
+		010000000000000000000013 /* WenJinMinchoP0-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000014 /* WenJinMinchoP0-Regular.otf */; };
+		010000000000000000000014 /* Licenses in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000015 /* Licenses */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +42,14 @@
 		02000000000000000000000B /* SystemTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemTranslation.swift; sourceTree = "<group>"; };
 		02000000000000000000000C /* ChannelViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelViews.swift; sourceTree = "<group>"; };
 		02000000000000000000000D /* ReaderSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettings.swift; sourceTree = "<group>"; };
+		02000000000000000000000E /* ArticleShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArticleShare.swift; sourceTree = "<group>"; };
+		02000000000000000000000F /* ReaderTypefaceMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTypefaceMigration.swift; sourceTree = "<group>"; };
+		020000000000000000000010 /* LXGWWenKaiGBLite-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "LXGWWenKaiGBLite-Regular.ttf"; sourceTree = "<group>"; };
+		020000000000000000000011 /* LXGWWenKaiTC-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "LXGWWenKaiTC-Regular.ttf"; sourceTree = "<group>"; };
+		020000000000000000000012 /* LXGWZhuqueFangsong-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "LXGWZhuqueFangsong-Regular.ttf"; sourceTree = "<group>"; };
+		020000000000000000000013 /* SourceHanSerifCN-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SourceHanSerifCN-Regular.otf"; sourceTree = "<group>"; };
+		020000000000000000000014 /* WenJinMinchoP0-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "WenJinMinchoP0-Regular.otf"; sourceTree = "<group>"; };
+		020000000000000000000015 /* Licenses */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Licenses; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,12 +82,28 @@
 				020000000000000000000008 /* ArticleContent.swift */,
 				020000000000000000000009 /* ReaderView.swift */,
 				02000000000000000000000D /* ReaderSettings.swift */,
+				02000000000000000000000E /* ArticleShare.swift */,
+				02000000000000000000000F /* ReaderTypefaceMigration.swift */,
 				02000000000000000000000B /* SystemTranslation.swift */,
 				02000000000000000000000C /* ChannelViews.swift */,
+				040000000000000000000003 /* Fonts */,
 				020000000000000000000004 /* Info.plist */,
 				020000000000000000000005 /* Assets.xcassets */,
 			);
 			path = QMReader;
+			sourceTree = "<group>";
+		};
+		040000000000000000000003 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				020000000000000000000010 /* LXGWWenKaiGBLite-Regular.ttf */,
+				020000000000000000000011 /* LXGWWenKaiTC-Regular.ttf */,
+				020000000000000000000012 /* LXGWZhuqueFangsong-Regular.ttf */,
+				020000000000000000000013 /* SourceHanSerifCN-Regular.otf */,
+				020000000000000000000014 /* WenJinMinchoP0-Regular.otf */,
+				020000000000000000000015 /* Licenses */,
+			);
+			path = Fonts;
 			sourceTree = "<group>";
 		};
 		040000000000000000000002 /* Products */ = {
@@ -142,6 +174,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				010000000000000000000004 /* Assets.xcassets in Resources */,
+				01000000000000000000000F /* LXGWWenKaiGBLite-Regular.ttf in Resources */,
+				010000000000000000000010 /* LXGWWenKaiTC-Regular.ttf in Resources */,
+				010000000000000000000011 /* LXGWZhuqueFangsong-Regular.ttf in Resources */,
+				010000000000000000000012 /* SourceHanSerifCN-Regular.otf in Resources */,
+				010000000000000000000013 /* WenJinMinchoP0-Regular.otf in Resources */,
+				010000000000000000000014 /* Licenses in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -160,6 +198,8 @@
 				010000000000000000000007 /* ArticleContent.swift in Sources */,
 				010000000000000000000008 /* ReaderView.swift in Sources */,
 				01000000000000000000000C /* ReaderSettings.swift in Sources */,
+				01000000000000000000000D /* ArticleShare.swift in Sources */,
+				01000000000000000000000E /* ReaderTypefaceMigration.swift in Sources */,
 				01000000000000000000000A /* SystemTranslation.swift in Sources */,
 				01000000000000000000000B /* ChannelViews.swift in Sources */,
 			);
@@ -291,14 +331,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QMReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.4.2;
+				MARKETING_VERSION = 0.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -315,14 +355,14 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QMReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.4.2;
+				MARKETING_VERSION = 0.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;

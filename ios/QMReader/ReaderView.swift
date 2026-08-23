@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ReaderView: View {
     @StateObject private var model: ReaderViewModel
-    @StateObject private var fontStore = ReaderFontStore()
     @EnvironmentObject private var library: LibraryState
     @Environment(\.openURL) private var openURL
     @Environment(\.colorScheme) private var systemColorScheme
@@ -82,16 +81,18 @@ struct ReaderView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if let link = model.entry.link, let url = URL(string: link) {
-                    ShareLink(item: url) {
-                        Image(systemName: "square.and.arrow.up").frame(width: 32, height: 44)
-                    }
-                    .accessibilityLabel("分享原文")
+                ShareLink(item: ArticleShareLink.canonicalURL(
+                    entryID: model.entry.id,
+                    titleZh: model.entry.titleZh,
+                    title: model.entry.title
+                )) {
+                    Image(systemName: "square.and.arrow.up").frame(width: 32, height: 44)
                 }
+                .accessibilityLabel("分享站内文章")
 
                 Menu {
                     if let link = model.entry.link, let url = URL(string: link) {
-                        Button("在 Safari 打开", systemImage: "safari") { openURL(url) }
+                        Button("在 Safari 打开原文", systemImage: "safari") { openURL(url) }
                     }
                     Button(
                         library.favoriteIDs.contains(model.entry.id) ? "取消收藏" : "收藏",
@@ -147,9 +148,9 @@ struct ReaderView: View {
             }
         }
         .task {
-            fontStore.refresh()
-            if selectedTypeface != .pingFang, !selectedTypeface.isAvailable {
-                typefaceRawValue = ReaderTypeface.pingFang.rawValue
+            let migratedTypeface = ReaderTypefaceMigration.migratedRawValue(typefaceRawValue)
+            if migratedTypeface != typefaceRawValue {
+                typefaceRawValue = migratedTypeface
             }
             library.markRead(model.entry.id)
             rebuildBlocks()
@@ -165,9 +166,8 @@ struct ReaderView: View {
                 margin: margin,
                 appearance: appearance,
                 palette: palette,
-                fontStore: fontStore,
                 setFontSize: { fontSize = $0 },
-                setTypeface: selectTypeface,
+                setTypeface: { typefaceRawValue = $0.rawValue },
                 setLineHeight: { lineHeightRawValue = $0.rawValue },
                 setMargin: { marginRawValue = $0.rawValue },
                 setAppearance: { appearanceRawValue = $0.rawValue }
@@ -245,7 +245,7 @@ struct ReaderView: View {
     }
 
     private var selectedTypeface: ReaderTypeface {
-        ReaderTypeface(rawValue: typefaceRawValue) ?? .pingFang
+        ReaderTypeface(rawValue: ReaderTypefaceMigration.migratedRawValue(typefaceRawValue)) ?? .pingFang
     }
 
     private var lineHeight: ReaderLineHeight {
@@ -262,20 +262,6 @@ struct ReaderView: View {
 
     private var palette: ReaderPalette {
         ReaderPalette.resolve(appearance: appearance, systemScheme: systemColorScheme)
-    }
-
-    private func selectTypeface(_ candidate: ReaderTypeface) {
-        guard !candidate.isAvailable else {
-            typefaceRawValue = candidate.rawValue
-            return
-        }
-        fontStore.request(candidate) { succeeded in
-            if succeeded {
-                typefaceRawValue = candidate.rawValue
-            } else {
-                showToast("字体下载失败，请稍后重试", icon: "exclamationmark.circle")
-            }
-        }
     }
 
     private func updateToolbarVisibility(_ offset: CGFloat) {
@@ -439,7 +425,7 @@ private struct ReaderHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(dateLabel)
-                .font(.system(size: 11, weight: .medium))
+                .font(typeface.font(size: 11, weight: .medium, relativeTo: .caption))
                 .foregroundStyle(palette.meta)
                 .padding(.bottom, 12)
 
@@ -454,14 +440,14 @@ private struct ReaderHeader: View {
 
             if entry.displayTitle != entry.title {
                 Text(entry.title)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(typeface.font(size: 13, relativeTo: .subheadline))
                     .foregroundStyle(palette.secondary)
                     .lineSpacing(3)
                     .padding(.top, 8)
             }
 
             Text(byline)
-                .font(.system(size: 13, weight: .regular))
+                .font(typeface.font(size: 13, relativeTo: .subheadline))
                 .foregroundStyle(palette.secondary)
                 .padding(.top, 12)
 
@@ -579,27 +565,26 @@ private struct ReaderAppearanceSheet: View {
     let margin: ReaderMargin
     let appearance: ReaderAppearance
     let palette: ReaderPalette
-    @ObservedObject var fontStore: ReaderFontStore
     let setFontSize: (Double) -> Void
     let setTypeface: (ReaderTypeface) -> Void
     let setLineHeight: (ReaderLineHeight) -> Void
     let setMargin: (ReaderMargin) -> Void
     let setAppearance: (ReaderAppearance) -> Void
 
+    private let typefaceColumns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+    private let appearanceColumns = [
+        GridItem(.adaptive(minimum: 104), spacing: 12),
+    ]
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Text("阅读外观")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(palette.ink)
-                    Spacer()
-                    Button("完成") { dismiss() }
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(palette.accent)
-                }
+            VStack(alignment: .leading, spacing: 24) {
+                header
 
-                settingSection("字号", value: "\(Int(fontSize))") {
+                settingSection("字号", value: "\(Int(fontSize)) pt") {
                     HStack(spacing: 12) {
                         stepButton(systemImage: "textformat.size.smaller", enabled: fontSize > 15) {
                             setFontSize(max(15, fontSize - 1))
@@ -616,49 +601,67 @@ private struct ReaderAppearanceSheet: View {
                     }
                 }
 
-                settingSection("字体") {
-                    HStack(spacing: 8) {
-                        ForEach(ReaderTypeface.allCases) { candidate in
-                            typefaceChoice(candidate)
+                settingSection("背景", value: appearance.label) {
+                    LazyVGrid(columns: appearanceColumns, spacing: 12) {
+                        ForEach(ReaderAppearance.allCases) { candidate in
+                            appearanceCard(candidate)
                         }
-                    }
-                    if let errorMessage = fontStore.errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 12))
-                            .foregroundStyle(palette.meta)
                     }
                 }
 
-                settingSection("行距") {
-                    HStack(spacing: 8) {
+                settingSection("字体", value: typeface.label) {
+                    LazyVGrid(columns: typefaceColumns, spacing: 12) {
+                        ForEach(ReaderTypeface.allCases) { candidate in
+                            typefaceCard(candidate)
+                        }
+                    }
+                }
+
+                settingSection("行距", value: lineHeight.label) {
+                    HStack(spacing: 12) {
                         ForEach(ReaderLineHeight.allCases) { candidate in
                             lineHeightChoice(candidate)
                         }
                     }
                 }
 
-                settingSection("页边距") {
-                    HStack(spacing: 8) {
+                settingSection("页边距", value: margin.label) {
+                    HStack(spacing: 12) {
                         ForEach(ReaderMargin.allCases) { candidate in
                             marginChoice(candidate)
                         }
                     }
                 }
-
-                settingSection("背景") {
-                    HStack(spacing: 8) {
-                        ForEach(ReaderAppearance.allCases) { candidate in
-                            appearanceChoice(candidate)
-                        }
-                    }
-                }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 22)
+            .padding(.top, 6)
+            .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
         .background(palette.paper)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("阅读外观")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(palette.ink)
+                Spacer()
+                Button("完成") { dismiss() }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.accent)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                Text("已即时应用到当前文章")
+                    .font(.system(size: 12))
+            }
+            .foregroundStyle(palette.meta)
+        }
     }
 
     private func settingSection<Content: View>(
@@ -666,7 +669,7 @@ private struct ReaderAppearanceSheet: View {
         value: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(title)
                 Spacer()
@@ -692,46 +695,51 @@ private struct ReaderAppearanceSheet: View {
         .disabled(!enabled)
     }
 
-    private func typefaceChoice(_ candidate: ReaderTypeface) -> some View {
+    private func typefaceCard(_ candidate: ReaderTypeface) -> some View {
         let isSelected = typeface == candidate
-        let isDownloading = fontStore.downloading == candidate
         return Button {
             setTypeface(candidate)
         } label: {
-            VStack(spacing: 4) {
-                ZStack(alignment: .topTrailing) {
-                    if isDownloading {
-                        ProgressView().controlSize(.small)
-                            .frame(height: 28)
-                    } else {
-                        Text(candidate.sample)
-                            .font(candidate.isAvailable
-                                ? candidate.font(size: 24, weight: .medium, relativeTo: .title3)
-                                : .system(size: 24, weight: .regular))
-                            .frame(height: 28)
-                    }
-                    if !candidate.isAvailable, !isDownloading {
-                        Image(systemName: "icloud.and.arrow.down")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(palette.meta)
-                            .offset(x: 12, y: -2)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(candidate.sample)
+                        .font(candidate.font(size: 21, relativeTo: .title3))
+                        .foregroundStyle(palette.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Spacer(minLength: 0)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(palette.accent)
                     }
                 }
-                Text(candidate.label)
-                    .font(.system(size: 11, weight: .medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(candidate.label)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.ink)
+                    Text(candidate.trait)
+                        .font(.system(size: 10))
+                        .foregroundStyle(palette.meta)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
-            .foregroundStyle(isSelected ? palette.accent : palette.ink)
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .background(isSelected ? palette.accent.opacity(0.12) : palette.quoteFill,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+            .background(
+                isSelected ? palette.paper : palette.quoteFill,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(isSelected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isSelected ? palette.accent : palette.hairline,
+                            lineWidth: isSelected ? 1 : 0.75)
             }
         }
         .buttonStyle(.plain)
-        .disabled(fontStore.downloading != nil)
-        .accessibilityLabel(candidate.isAvailable ? candidate.label : "下载并使用\(candidate.label)")
+        .accessibilityLabel("\(candidate.label)，\(candidate.trait)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -741,18 +749,27 @@ private struct ReaderAppearanceSheet: View {
         return Button {
             setLineHeight(candidate)
         } label: {
-            VStack(spacing: gap) {
-                ForEach(0..<3, id: \.self) { _ in
-                    Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72))
-                        .frame(width: 30, height: 1.5)
+            VStack(spacing: 8) {
+                VStack(spacing: gap) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72))
+                            .frame(width: 30, height: 1.5)
+                    }
                 }
+                .frame(height: 22)
+                Text(candidate.label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isSelected ? palette.accent : palette.ink)
             }
-            .frame(maxWidth: .infinity, minHeight: 46)
-            .background(isSelected ? palette.accent.opacity(0.12) : palette.quoteFill,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                isSelected ? palette.paper : palette.quoteFill,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(isSelected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+                    .stroke(isSelected ? palette.accent : palette.hairline,
+                            lineWidth: isSelected ? 1 : 0.75)
             }
         }
         .buttonStyle(.plain)
@@ -766,22 +783,27 @@ private struct ReaderAppearanceSheet: View {
         return Button {
             setMargin(candidate)
         } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: 8) {
                 VStack(spacing: 4) {
                     Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72)).frame(height: 1.5)
                     Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72)).frame(height: 1.5)
                     Capsule().fill(isSelected ? palette.accent : palette.ink.opacity(0.72)).frame(height: 1.5)
                 }
                 .padding(.horizontal, inset)
-                Text(candidate.label).font(.system(size: 10, weight: .medium))
+                .frame(height: 22)
+                Text(candidate.label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isSelected ? palette.accent : palette.ink)
             }
-            .foregroundStyle(isSelected ? palette.accent : palette.ink)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(isSelected ? palette.accent.opacity(0.12) : palette.quoteFill,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                isSelected ? palette.paper : palette.quoteFill,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(isSelected ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+                    .stroke(isSelected ? palette.accent : palette.hairline,
+                            lineWidth: isSelected ? 1 : 0.75)
             }
         }
         .buttonStyle(.plain)
@@ -789,47 +811,71 @@ private struct ReaderAppearanceSheet: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func appearanceChoice(_ candidate: ReaderAppearance) -> some View {
+    private func appearanceCard(_ candidate: ReaderAppearance) -> some View {
+        let isSelected = appearance == candidate
         let sample = ReaderPalette.resolve(appearance: candidate, systemScheme: systemColorScheme)
         let paperSample = ReaderPalette.resolve(appearance: .paper, systemScheme: .light)
         let nightSample = ReaderPalette.resolve(appearance: .night, systemScheme: .dark)
         let swatchColors = candidate == .system
             ? [paperSample.paper, nightSample.paper]
             : [sample.paper, sample.paper]
+        let swatchInk = candidate == .system ? paperSample.ink : sample.ink
         return Button {
             setAppearance(candidate)
         } label: {
-            VStack(spacing: 4) {
-                Text("Aa")
-                    .font(.system(size: 14, weight: .semibold, design: .serif))
-                    .foregroundStyle(sample.ink)
-                    .frame(maxWidth: .infinity, minHeight: 34)
-                    .background(LinearGradient(
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .topTrailing) {
+                    Text("Aa")
+                        .font(.system(size: 16, weight: .medium, design: .serif))
+                        .foregroundStyle(swatchInk)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(sample.accent)
+                            .padding(8)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(
+                    LinearGradient(
                         colors: swatchColors,
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
-                    ), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(sample.ink.opacity(0.25), lineWidth: 0.75)
-                    }
-                Text(candidate.label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(appearance == candidate ? palette.accent : palette.ink)
+                    ),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(swatchInk.opacity(0.22), lineWidth: 0.75)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(candidate.label)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.ink)
+                    Text(candidate.purpose)
+                        .font(.system(size: 10))
+                        .foregroundStyle(palette.meta)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 56)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                appearance == candidate ? palette.accent.opacity(0.10) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                isSelected ? palette.paper : palette.quoteFill,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(appearance == candidate ? palette.accent.opacity(0.72) : palette.hairline, lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isSelected ? palette.accent : palette.hairline,
+                            lineWidth: isSelected ? 1 : 0.75)
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(candidate.label)背景")
-        .accessibilityAddTraits(appearance == candidate ? .isSelected : [])
+        .accessibilityLabel("\(candidate.label)背景，\(candidate.purpose)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
