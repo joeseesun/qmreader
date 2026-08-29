@@ -66,7 +66,7 @@ QMReader 会把可复用内容做成公开资产，而不是只留在个人会�
 
 | 能力 | 用户得到什么 |
 |---|---|
-| 多源 RSS 抓取 | 聚合 RSSHub、直接 RSS、sitemap、Hacker News、Product Hunt、GitHub Trending、Hugging Face Papers 等技术源 |
+| 多源信息抓取 | 聚合 RSSHub、直接 RSS、sitemap、AIHOT 精选与全网热点、Hacker News、Product Hunt、GitHub Trending、Hugging Face Papers 等技术源 |
 | 首页工作台 | 源列表、文章列表、阅读器、Article Agent 四区同屏，适合连续阅读和快速切换上下文 |
 | 文章列表 | 支持最新、热门、未读、搜索、源筛选、收藏、历史和贡献榜视图 |
 | 双语阅读 | 英文标题自动补中文，正文可生成中文译文，并保留原文上下文 |
@@ -134,6 +134,10 @@ HOST=127.0.0.1 PORT=3000 npm start
 | `REWRITE_RETRY_BASE_MS` | `60000` | 临时失败的指数退避基数，最长退避 1 小时 |
 | `REWRITE_BACKFILL_LIMIT` | `100` | 服务启动时扫描并补入队列的最近缺失/过期改写上限 |
 | `ORIGINAL_FETCH_RETRY_COOLDOWN_MS` | `21600000` | 原文抓取失败后的自动重试冷却时间，避免反复请求 403 页面 |
+| `AIHOT_USER_AGENT` | `qmreader/1.0` | AIHOT 匿名只读请求标识；无需 API key 或 X Cookie |
+| `AIHOT_X_HANDLES` | 空 | 逗号分隔的 X 账号白名单；配置后自动启用“X 关注”源 |
+| `AIHOT_X_PER_ACCOUNT_LIMIT` | `5` | 每轮每个白名单账号最多收录几条 |
+| `AIHOT_X_MIN_SCORE` | `0` | 未入选 AIHOT 精选的 X 帖子最低分；官方账号可保持 0 |
 | `UMAMI_WEBSITE_ID` | 空 | 可选 Umami 站点 ID |
 | `UMAMI_SRC` | `https://umami.qiaomu.ai/script.js` | 可选 Umami 脚本地址 |
 
@@ -201,6 +205,8 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 | `{rsshub}/route` | 依次尝试内置 RSSHub 实例 |
 | `sitemap:URL` | 抓 sitemap.xml 取最新文章页，再解析页面 og 标签 |
 
+`AIHOT 精选`使用原生 JSON adapter，不经过 RSS 转换。它保留 AIHOT 评分、精选状态、推荐理由和归因；当原始 URL 已由其他订阅源收录时，只附加外部信号，不重复创建文章。`X 关注`同样来自 AIHOT 公共信息池，仅按 `x.com/{handle}/status/{id}` 精确匹配 `AIHOT_X_HANDLES`，不承诺指定账号的完整时间线。
+
 ## API
 
 常用公开接口：
@@ -208,6 +214,7 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/sources` | 全部源及抓取状态、刷新进度、fetch/AI 后台状态 |
+| GET | `/api/aihot/hot-topics` | AIHOT 多来源全网热点；服务端缓存 5 分钟并支持陈旧回退 |
 | GET | `/api/entries?source=&category=&q=&limit=` | 文章列表 |
 | GET | `/api/entry/:id` | 单篇全文 |
 | GET | `/api/entry/:id/translation` | 读取双语翻译缓存 |

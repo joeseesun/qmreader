@@ -2223,7 +2223,10 @@ function normalizeBackgroundJob(job = {}) {
 function defaultAutoRewriteSourceIds() {
   if (AUTO_REWRITE_SOURCE_IDS.size) return Array.from(AUTO_REWRITE_SOURCE_IDS);
   return fetcher.getSourcesMeta()
-    .filter(source => source && source.enabled)
+    .filter(source => {
+      const configured = source && fetcher.getSourceById(source.id);
+      return source && source.enabled && (!configured || configured.autoRewrite !== false);
+    })
     .map(source => source.id)
     .filter(Boolean);
 }
@@ -2729,6 +2732,14 @@ app.get('/api/sources', (req, res) => {
     autoRewrite: { running: autoRewriteRunning, last: autoRewriteLast },
     backgroundJob: backgroundJobState(),
   });
+});
+
+app.get('/api/aihot/hot-topics', async (req, res) => {
+  try {
+    res.json(await fetcher.getAihotHotTopics());
+  } catch (error) {
+    sendError(res, error, 'AIHOT hot topics failed');
+  }
 });
 
 app.post('/api/sources/:id/refresh-hint', (req, res) => {

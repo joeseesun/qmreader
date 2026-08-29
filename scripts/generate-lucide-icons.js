@@ -47,6 +47,7 @@ const ICONS = [
   ['pencil', 'Pencil'],
   ['plus', 'Plus'],
   ['quote', 'Quote'],
+  ['radio-tower', 'RadioTower'],
   ['refresh-cw', 'RefreshCw'],
   ['rss', 'Rss'],
   ['search', 'Search'],

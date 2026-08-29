@@ -1191,6 +1191,66 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
 .entry-card:hover { background: var(--bg-1); }
 .entry-card.active { background: var(--bg-1); border-color: var(--border); box-shadow: 0 2px 8px var(--shadow); }
 .entry-main { flex: 1; min-width: 0; }
+.entry-signal {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--semantic-amber) 34%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--semantic-amber) 8%, var(--bg-1));
+  color: color-mix(in srgb, var(--semantic-amber) 80%, var(--text-0));
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.aihot-topic-list {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.aihot-topic-status {
+  margin: 8px 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+
+.aihot-topic-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  box-shadow: 0 1px 2px var(--shadow-soft);
+}
+
+.aihot-topic-rank {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--semantic-amber) 12%, var(--bg-2));
+  color: color-mix(in srgb, var(--semantic-amber) 82%, var(--text-0));
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.aihot-topic-main { min-width: 0; display: grid; gap: 6px; }
+.aihot-topic-kicker { display: flex; justify-content: space-between; gap: 8px; color: var(--text-2); font-size: 11px; }
+.aihot-topic-main h3 { margin: 0; color: var(--text-0); font-size: 14px; line-height: 1.45; }
+.aihot-topic-main p { margin: 0; color: var(--text-2); font-size: 11.5px; line-height: 1.5; }
+.aihot-topic-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.aihot-topic-actions a { color: var(--accent); font-size: 11.5px; font-weight: 720; text-decoration: none; }
+.aihot-topic-actions a:hover { text-decoration: underline; }
 .contributor-card {
   display: grid;
   grid-template-columns: auto 64px minmax(0, 1fr);
@@ -6477,6 +6537,43 @@ button:disabled { cursor: not-allowed; opacity: 0.62; }
   flex-wrap: wrap;
   gap: 6px;
 }
+
+.article-external-signal {
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--semantic-amber) 24%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--semantic-amber) 6%, var(--bg-1));
+}
+
+.article-external-signal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.article-external-signal-head span {
+  color: color-mix(in srgb, var(--semantic-amber) 82%, var(--text-0));
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.article-external-signal p {
+  margin: 0;
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.article-external-signal a {
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.article-external-signal a:hover { text-decoration: underline; }
 .entry-card:focus-visible {
   background: var(--surface);
   border-color: var(--focus-ring);
