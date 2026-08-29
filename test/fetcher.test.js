@@ -162,6 +162,38 @@ test('sitemap parser handles CDATA, entities and trailing-slash article URLs', (
   ]);
 });
 
+test('WordPress JSON feeds rotate their cache key hourly before parsing posts', async () => {
+  const { freshWpJsonUrl, parseWpJsonFeed } = fetcher.__test;
+  const baseUrl = 'https://example.com/wp-json/wp/v2/posts?per_page=10&_fields=id,date_gmt,link,title';
+  const firstHour = Date.UTC(2026, 6, 29, 10, 5);
+  const sameHour = Date.UTC(2026, 6, 29, 10, 55);
+  const nextHour = Date.UTC(2026, 6, 29, 11, 0);
+  const firstUrl = freshWpJsonUrl(baseUrl, firstHour);
+  assert.equal(freshWpJsonUrl(baseUrl, sameHour), firstUrl);
+  assert.notEqual(freshWpJsonUrl(baseUrl, nextHour), firstUrl);
+  assert.equal(new URL(firstUrl).searchParams.get('_qmreader_hour'), String(Math.floor(firstHour / 3600000)));
+
+  let requestedUrl = '';
+  const feed = await parseWpJsonFeed(baseUrl, { name: 'Example' }, {
+    now: () => firstHour,
+    fetchText: async url => {
+      requestedUrl = url;
+      return JSON.stringify([{
+        id: 42,
+        date_gmt: '2026-07-23T19:35:43',
+        link: 'https://example.com/posts/latest',
+        title: { rendered: 'Latest post' },
+        content: { rendered: '<p>Fresh content</p>' },
+        excerpt: { rendered: '<p>Fresh summary</p>' },
+      }]);
+    },
+  });
+
+  assert.equal(requestedUrl, firstUrl);
+  assert.equal(feed.items[0].title, 'Latest post');
+  assert.equal(feed.items[0].pubDate, '2026-07-23T19:35:43Z');
+});
+
 test('entry deduplication keeps source order and the richer duplicate', () => {
   const rows = fetcher.__test.dedupeEntries([
     { id: 'a', content: '<p>short</p>', image: null },

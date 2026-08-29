@@ -30,6 +30,15 @@ async function run(job = {}) {
       onAutoRewriteDone(autoRewrite) {
         send({ type: 'autoRewriteDone', autoRewrite, finishedAt: Date.now() });
       },
+      onRewriteItemStart(rewriteJob) {
+        send({ type: 'rewriteItemStart', rewriteJob, startedAt: Date.now() });
+      },
+      onRewriteHeartbeat(rewriteJob) {
+        send({ type: 'rewriteHeartbeat', rewriteJobId: rewriteJob.id, at: Date.now() });
+      },
+      onRewriteItemDone(rewriteResult) {
+        send({ type: 'rewriteItemDone', rewriteResult, finishedAt: Date.now() });
+      },
     });
     send({ type: 'done', result });
     return result;

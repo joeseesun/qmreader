@@ -38,6 +38,9 @@ const DOMPURIFY_VERSION = JSON.parse(fs.readFileSync(
   'utf8',
 )).version;
 const REFRESH_WORKER_PATH = path.join(__dirname, 'scripts', 'refresh-worker.js');
+const ENTRY_LIST_CACHE_TTL_MS = Math.max(1000, parseInt(process.env.ENTRY_LIST_CACHE_TTL_MS || '15000', 10) || 15000);
+const ENTRY_LIST_CACHE_MAX = 48;
+const entryListCache = new Map();
 const DEFAULT_TITLE = 'QMReader · RSS 阅读器';
 const DEFAULT_DESCRIPTION = '围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。';
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -108,6 +111,7 @@ let aiWorker = null;
 let aiJob = null;
 let aiLast = null;
 const aiQueuedSourceIds = new Set();
+const refreshQueuedSourceIds = new Set();
 let autoRewriteRunning = false;
 let autoRewriteLast = null;
 const sourceInteractionRefreshAt = new Map();
@@ -156,6 +160,32 @@ const submitLinkDailyRateLimit = createRateLimiter({
   message: '每天最多收录 20 个链接，请明天再试',
   key: req => `user:${req.user && req.user.id || 'anonymous'}`,
 });
+const nativeLinkSubmitRateLimit = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  message: '每小时最多加入 6 个链接，请稍后再试',
+  key: req => `native:${req.ip || 'unknown'}:${String(req.get('X-QMReader-Device') || '').slice(0, 64)}`,
+});
+const nativeLinkSubmitDailyRateLimit = createRateLimiter({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 20,
+  message: '今天加入的链接有点多，请明天再试',
+  key: req => `native-day:${req.ip || 'unknown'}`,
+});
+const nativeLinkSubmitGlobalRateLimit = createRateLimiter({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 100,
+  message: '处理队列忙，请稍后再试',
+  key: () => 'native-global',
+});
+function requireNativeLinkClient(req, res, next) {
+  const client = String(req.get('X-QMReader-Client') || '').trim();
+  const deviceId = String(req.get('X-QMReader-Device') || '').trim().toLowerCase();
+  if (client !== 'ios-native' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deviceId)) {
+    return res.status(403).json({ error: '这个客户端暂时不能加入链接' });
+  }
+  return next();
+}
 const registerRateLimit = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -2218,6 +2248,7 @@ function backgroundJobState() {
       job: refreshJob,
       last: refreshLast,
       progress: refreshProgress,
+      queuedSourceIds: Array.from(refreshQueuedSourceIds),
     },
     ai: {
       running: Boolean(aiWorker),
@@ -2231,6 +2262,7 @@ function backgroundJobState() {
 function reloadFetcherAfterWorker() {
   try {
     fetcher.loadDisk({ upsert: false });
+    entryListCache.clear();
   } catch (error) {
     console.warn('Reload refreshed cache skipped:', error.message || error);
   }
@@ -2282,6 +2314,15 @@ function finishFetchJob({ result = null, error = null, code = 0, signal = '' } =
   refreshWorker = null;
   refreshJob = null;
   reloadFetcherAfterWorker();
+  if (refreshQueuedSourceIds.size) {
+    const queued = Array.from(refreshQueuedSourceIds);
+    refreshQueuedSourceIds.clear();
+    startFetchJob({
+      kind: 'refresh',
+      sourceIds: queued,
+      reason: 'queued-source-interaction',
+    });
+  }
 }
 
 function finishAiJob({ result = null, error = null, code = 0, signal = '' } = {}) {
@@ -2372,7 +2413,6 @@ function startFetchJob(job = {}) {
         }
         refreshing = false;
       }
-      reloadFetcherAfterWorker();
       refreshLast = {
         kind: 'refresh',
         sourceId: refreshJob && refreshJob.sourceId || '',
@@ -2525,9 +2565,6 @@ function triggerSourceInteractionRefresh(sourceId, reason = 'interaction') {
   if (!src) return { started: false, skipped: 'source not found' };
   if (src.manual) return { started: false, skipped: 'manual source' };
   if (!fetcher.isEnabled(src)) return { started: false, skipped: 'source disabled' };
-  if (refreshWorker) {
-    return { started: false, running: true, skipped: 'refresh already running', job: refreshJob };
-  }
   const cooldown = Number.isFinite(SOURCE_INTERACTION_REFRESH_COOLDOWN_MS)
     ? Math.max(0, SOURCE_INTERACTION_REFRESH_COOLDOWN_MS)
     : 15 * 60 * 1000;
@@ -2535,6 +2572,17 @@ function triggerSourceInteractionRefresh(sourceId, reason = 'interaction') {
   const last = sourceInteractionRefreshAt.get(id) || 0;
   if (cooldown && now - last < cooldown) {
     return { started: false, skipped: 'cooldown', nextAllowedAt: last + cooldown };
+  }
+  if (refreshWorker) {
+    refreshQueuedSourceIds.add(id);
+    sourceInteractionRefreshAt.set(id, now);
+    return {
+      started: false,
+      running: true,
+      queued: true,
+      skipped: 'refresh queued',
+      job: refreshJob,
+    };
   }
   const result = startBackgroundJob({
     kind: 'refresh',
@@ -2673,8 +2721,9 @@ function scheduleFreshnessRefresh() {
 }
 
 app.get('/api/sources', (req, res) => {
+  const requireRewrite = req.query.ready === 'rewrite';
   res.json({
-    sources: fetcher.getSourcesMeta(),
+    sources: fetcher.getSourcesMeta({ requireRewrite }),
     refreshing,
     progress: refreshProgress,
     autoRewrite: { running: autoRewriteRunning, last: autoRewriteLast },
@@ -2688,6 +2737,17 @@ app.post('/api/sources/:id/refresh-hint', (req, res) => {
     res.json({ ok: true, refresh });
   } catch (e) {
     sendError(res, e, 'source refresh hint failed');
+  }
+});
+
+app.post('/api/refresh-hint', (req, res) => {
+  try {
+    // Public clients may ask for freshness, but the server still decides the
+    // stale sources, batch size, cost ceiling and single-worker concurrency.
+    const refresh = triggerFreshnessRefresh();
+    res.json({ ok: true, refresh });
+  } catch (e) {
+    sendError(res, e, 'refresh hint failed');
   }
 });
 
@@ -2998,15 +3058,53 @@ app.post('/api/ai/test', requireLogin, async (req, res) => {
 
 // List endpoint omits full content to keep the payload small; fetch it per-entry on open.
 app.get('/api/entries', (req, res) => {
-  const { source, category, q, limit } = req.query;
+  const { source, category, q, limit, ready, summary } = req.query;
+  const cacheable = summary === 'minimal' && !String(q || '').trim();
+  const cacheKey = cacheable
+    ? JSON.stringify({ source: source || '', category: category || '', limit: limit || '', ready: ready || '' })
+    : '';
+  const cached = cacheKey ? entryListCache.get(cacheKey) : null;
+  if (cached && cached.expiresAt > Date.now()) {
+    res.setHeader('X-QMReader-Cache', 'HIT');
+    return res.json(cached.payload);
+  }
+  if (cached) entryListCache.delete(cacheKey);
   const entries = fetcher.getEntries({
     sourceId: source || undefined,
     category: category || undefined,
     q: q || undefined,
     limit: limit ? parseInt(limit, 10) : undefined,
     viewer: req.user,
+    requireRewrite: ready === 'rewrite',
+    compact: summary === 'compact',
+    minimal: summary === 'minimal',
   }).map(({ content, ...rest }) => rest);
-  res.json({ entries });
+  const payload = { entries };
+  if (cacheKey) {
+    if (entryListCache.size >= ENTRY_LIST_CACHE_MAX) {
+      const oldestKey = entryListCache.keys().next().value;
+      if (oldestKey) entryListCache.delete(oldestKey);
+    }
+    entryListCache.set(cacheKey, { payload, expiresAt: Date.now() + ENTRY_LIST_CACHE_TTL_MS });
+    res.setHeader('X-QMReader-Cache', 'MISS');
+  }
+  return res.json(payload);
+});
+
+app.get('/api/sources/:id/entries', (req, res) => {
+  const limit = Math.max(1, Math.min(100, Number.parseInt(req.query.limit, 10) || 40));
+  const page = fetcher.getSourceEntryHistory({
+    sourceId: req.params.id,
+    limit,
+    cursor: String(req.query.cursor || ''),
+    viewer: req.user,
+    requireRewrite: req.query.ready === 'rewrite',
+  });
+  if (!page) return res.status(404).json({ error: 'source not found' });
+  res.json({
+    ...page,
+    entries: page.entries.map(({ content, ...rest }) => rest),
+  });
 });
 
 app.get('/api/entry/:id', (req, res) => {
@@ -3073,6 +3171,31 @@ app.post('/api/submit-link', requireLogin, submitLinkRateLimit, submitLinkDailyR
   }
 });
 
+app.post(
+  '/api/links/submit',
+  requireNativeLinkClient,
+  nativeLinkSubmitRateLimit,
+  nativeLinkSubmitDailyRateLimit,
+  nativeLinkSubmitGlobalRateLimit,
+  async (req, res) => {
+    const url = String((req.body && req.body.url) || '').trim();
+    if (!url) return res.status(400).json({ error: '请填写要加入的链接' });
+    try {
+      const existing = fetcher.getSubmittedEntryByUrl(url);
+      if (existing) {
+        if (!rewriteResponse(existing)) queueSubmittedRewrite(existing);
+        return res.json({ accepted: true, duplicate: true, entryId: existing.id, status: 'processing' });
+      }
+      const entry = await fetcher.submitLink(url, { displayName: 'QMReader iOS' });
+      void translateSubmittedTitle(entry);
+      queueSubmittedRewrite(entry);
+      return res.status(202).json({ accepted: true, duplicate: false, entryId: entry.id, status: 'processing' });
+    } catch (e) {
+      return sendError(res, e, 'native link submit failed');
+    }
+  }
+);
+
 app.post('/api/entry/:id/content', originalFetchRateLimit, async (req, res) => {
   const entry = fetcher.getEntryById(req.params.id, req.user);
   if (!entry) return res.status(404).json({ error: 'entry not found' });
@@ -3136,6 +3259,7 @@ app.post('/api/entry/:id/rewrite', requireLogin, async (req, res) => {
       userId: req.user.id,
       force: Boolean(req.body && req.body.force),
     });
+    entryListCache.clear();
     res.json({
       ...result,
       rewrite: rewriteResponse(prepared.entry, req.user) || result.rewrite,
@@ -3505,7 +3629,7 @@ app.post('/api/sources/:id/toggle', requireAdmin, async (req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`QMReader listening on http://${HOST}:${PORT}`);
   seedAdminFromEnv();
-  fetcher.loadDisk();
+  fetcher.loadDisk({ upsert: false });
   scheduleStartupRefresh();
   scheduleDailyRefresh();
   scheduleFreshnessRefresh();

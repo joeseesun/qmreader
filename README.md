@@ -129,6 +129,11 @@ HOST=127.0.0.1 PORT=3000 npm start
 | `AUTO_REWRITE_LIMIT_PER_SOURCE` | `3` | 每个源默认自动改写条数 |
 | `AUTO_REWRITE_LIMIT_HACKERNEWS` | `10` | Hacker News 自动改写条数 |
 | `AUTO_REWRITE_MODEL` | `deepseek-v4-flash` | 自动改写模型 |
+| `REWRITE_ITEM_TIMEOUT_MS` | `360000` | 单篇改写子进程的无完成进展超时；超时后终止并按持久化任务重试 |
+| `REWRITE_JOB_LEASE_MS` | `300000` | 改写任务租约；进程异常退出后，过期任务自动恢复 |
+| `REWRITE_RETRY_BASE_MS` | `60000` | 临时失败的指数退避基数，最长退避 1 小时 |
+| `REWRITE_BACKFILL_LIMIT` | `100` | 服务启动时扫描并补入队列的最近缺失/过期改写上限 |
+| `ORIGINAL_FETCH_RETRY_COOLDOWN_MS` | `21600000` | 原文抓取失败后的自动重试冷却时间，避免反复请求 403 页面 |
 | `UMAMI_WEBSITE_ID` | 空 | 可选 Umami 站点 ID |
 | `UMAMI_SRC` | `https://umami.qiaomu.ai/script.js` | 可选 Umami 脚本地址 |
 
@@ -157,9 +162,9 @@ HOST=127.0.0.1 PORT=3000 npm start
 QMReader 的刷新分两段：
 
 1. **Fetch worker:** 抓 RSS/页面，写入缓存和 SQLite，并立刻通知 Web 进程重新加载。用户先看到新条目。
-2. **AI worker:** 只对有新条目的源排队做标题翻译和自动改写。AI 慢或失败时，不阻塞 RSS 阅读。
+2. **AI worker:** 每个新增或内容变化的条目都以 `entry_id + content_hash` 写入 SQLite 持久化队列。每个子进程只处理一篇文章；任务使用租约、指数退避和无进展看门狗，服务重启或子进程卡死后仍能恢复，不阻塞 RSS 阅读，也不会因“只保留来源最新几篇”而漏任务。
 
-不同源有不同 freshness 策略。例如 Hacker News 5 分钟高优先级，Product Hunt 15 分钟，GitHub/Hugging Face 30 分钟，播客类 12 小时。`/api/sources` 会返回 `backgroundJob.fetch` 和 `backgroundJob.ai`，便于观察两段任务状态。
+不同源有不同 freshness 策略。例如 Hacker News 5 分钟高优先级，Product Hunt 15 分钟，GitHub/Hugging Face 30 分钟，播客类 12 小时。`/api/sources` 会返回 `backgroundJob.fetch`、`backgroundJob.ai.queue`、当前租约和最后心跳；管理员可通过 `/api/admin/rewrite-jobs` 查看任务与错误详情。
 
 命令行手动刷新：
 
@@ -395,6 +400,8 @@ Important variables:
 - `STARTUP_REFRESH_DELAY_MS`: startup refresh delay, or `-1` to disable.
 - `FRESHNESS_SWEEP_INTERVAL_MS`: stale-source sweep interval.
 - `AUTO_REWRITE_SOURCE_IDS`: optional source allowlist for auto rewriting.
+- `REWRITE_ITEM_TIMEOUT_MS`: no-progress watchdog for one rewrite subprocess; defaults to 6 minutes.
+- `REWRITE_BACKFILL_LIMIT`: startup reconciliation limit for missing or stale rewrites; defaults to 100.
 
 Runtime data is stored under `data/` and is ignored by Git.
 
