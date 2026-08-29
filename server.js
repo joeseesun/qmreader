@@ -2274,12 +2274,21 @@ function reloadFetcherAfterWorker() {
 function autoRewriteSourceIdsFromRefresh(refresh, job = {}) {
   if (!refresh || typeof refresh !== 'object') return [];
   if (!Number(refresh.changedEntryCount || 0)) return [];
-  if (Array.isArray(refresh.changedSourceIds) && refresh.changedSourceIds.length) return refresh.changedSourceIds;
-  if (refresh.sourceId) return [refresh.sourceId];
-  if (Array.isArray(refresh.sourceIds) && refresh.sourceIds.length) return refresh.sourceIds;
-  if (job && job.sourceId) return [job.sourceId];
-  if (job && Array.isArray(job.sourceIds) && job.sourceIds.length) return job.sourceIds;
-  return [];
+  const sourceIds = Array.isArray(refresh.changedSourceIds) && refresh.changedSourceIds.length
+    ? refresh.changedSourceIds
+    : refresh.sourceId
+      ? [refresh.sourceId]
+      : Array.isArray(refresh.sourceIds) && refresh.sourceIds.length
+        ? refresh.sourceIds
+        : job && job.sourceId
+          ? [job.sourceId]
+          : job && Array.isArray(job.sourceIds)
+            ? job.sourceIds
+            : [];
+  return [...new Set(sourceIds)].filter(id => {
+    const source = fetcher.getSourceById(id);
+    return !source || source.autoRewrite !== false;
+  });
 }
 
 function queueAutoRewriteForRefresh(refresh, job = {}) {

@@ -147,10 +147,12 @@ test('AIHOT UI exposes the curated source, external signals, and full-network ho
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const icons = fs.readFileSync(path.join(__dirname, '..', 'public', 'lucide-icons.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(html, /data-view="aihot"/);
   assert.match(html, /全网热点/);
   assert.match(app, /loadAihotTopics/);
   assert.match(app, /article-external-signal/);
   assert.match(app, /事件时间线/);
   assert.match(icons, /"radio-tower"/);
+  assert.match(server, /autoRewriteSourceIdsFromRefresh[\s\S]+source\.autoRewrite !== false/);
 });
