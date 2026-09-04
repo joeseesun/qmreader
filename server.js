@@ -2743,14 +2743,6 @@ app.get('/api/sources', (req, res) => {
   });
 });
 
-app.get('/api/aihot/hot-topics', async (req, res) => {
-  try {
-    res.json(await fetcher.getAihotHotTopics());
-  } catch (error) {
-    sendError(res, error, 'AIHOT hot topics failed');
-  }
-});
-
 app.post('/api/sources/:id/refresh-hint', (req, res) => {
   try {
     const refresh = triggerSourceInteractionRefresh(req.params.id, 'source-interaction');

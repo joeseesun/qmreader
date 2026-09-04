@@ -617,9 +617,6 @@ const state = {
   entryListHasMore: false,
   entriesLoadingMore: false,
   contributors: [],
-  aihotTopics: [],
-  aihotTopicsLoading: false,
-  aihotTopicsError: '',
   adminSubmissionUsers: [],
   adminSubmissionRequests: [],
   adminSubmissionRequestsLoaded: false,
@@ -1759,23 +1756,6 @@ async function loadSources() {
   return data;
 }
 
-async function loadAihotTopics() {
-  if (state.aihotTopicsLoading) return state.aihotTopics;
-  state.aihotTopicsLoading = true;
-  state.aihotTopicsError = '';
-  try {
-    const data = await api('/api/aihot/hot-topics');
-    state.aihotTopics = Array.isArray(data.items) ? data.items : [];
-    if (data.stale && data.error) state.aihotTopicsError = `正在显示缓存：${data.error}`;
-    return state.aihotTopics;
-  } catch (error) {
-    state.aihotTopicsError = error.message || '加载失败';
-    throw error;
-  } finally {
-    state.aihotTopicsLoading = false;
-  }
-}
-
 function hintSourceRefresh(sourceId, reason = 'source-interaction') {
   const id = String(sourceId || '').trim();
   if (!id) return;
@@ -1956,22 +1936,6 @@ function entryStatsLabel(entry) {
     stats.likeCount ? `赞 ${formatCompactCount(stats.likeCount)}` : '',
     stats.dislikeCount ? `负反馈 ${formatCompactCount(stats.dislikeCount)}` : '',
   ].filter(Boolean).join(' · ');
-}
-
-function aihotSignal(entry) {
-  return (entry && Array.isArray(entry.signals) ? entry.signals : [])
-    .find(signal => signal && signal.provider === 'aihot') || null;
-}
-
-function aihotSignalBadgeHtml(entry) {
-  const signal = aihotSignal(entry);
-  if (!signal) return '';
-  const score = Number.isFinite(Number(signal.score)) ? Number(signal.score) : null;
-  const label = signal.selected
-    ? `AIHOT 精选${score == null ? '' : ` · ${score}`}`
-    : `AIHOT${score == null ? '' : ` · ${score}`}`;
-  const title = [signal.sourceName, signal.reason].filter(Boolean).join(' · ');
-  return `<span class="entry-signal aihot-signal" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
 }
 
 function entryTitlePenalty(entry) {
@@ -2214,7 +2178,6 @@ function renderSidebar() {
   $('#count-all').textContent = entryWindowCountLabel(state.entries.length);
   $('#count-hot').textContent = entryWindowCountLabel(hotEntryCount());
   $('#count-unread').textContent = entryWindowCountLabel(unreadCountFor(() => true));
-  $('#count-aihot').textContent = state.aihotTopics.length || '';
   $('#count-starred').textContent = state.starred.size || '';
   $('#count-history').textContent = state.history.size || '';
   $('#count-contributors').textContent = state.contributors.length || '';
@@ -2831,7 +2794,7 @@ function currentListScope() {
 function renderListScopeBar() {
   const bar = $('#list-scope-bar');
   if (!bar) return;
-  const hidden = state.view === 'contributors' || state.view === 'aihot';
+  const hidden = state.view === 'contributors';
   bar.classList.toggle('hidden', hidden);
   if (hidden) return;
   const active = currentListScope();
@@ -2840,46 +2803,6 @@ function renderListScopeBar() {
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
-}
-
-function renderAihotTopicsDirectory() {
-  const el = $('#entry-list');
-  el.innerHTML = '';
-  el.classList.remove('home-asset-activity-list');
-  if (state.aihotTopicsLoading) {
-    el.innerHTML = '<div class="list-empty">正在聚合全网 AI 热点…</div>';
-    return;
-  }
-  if (!state.aihotTopics.length) {
-    const detail = state.aihotTopicsError ? `<br/>${escapeHtml(state.aihotTopicsError)}` : '';
-    el.innerHTML = `<div class="list-empty">暂时没有热点事件${detail}</div>`;
-    return;
-  }
-  const status = state.aihotTopicsError
-    ? `<div class="aihot-topic-status">${escapeHtml(state.aihotTopicsError)}</div>`
-    : '';
-  el.innerHTML = `${status}<div class="aihot-topic-list">${state.aihotTopics.map((topic, index) => {
-    const rank = Number(topic.rank) || index + 1;
-    const sources = Array.isArray(topic.sourceNames) ? topic.sourceNames.slice(0, 4) : [];
-    const moreSources = Math.max(0, Number(topic.sourceCount || sources.length) - sources.length);
-    const storyUrl = topic.links && (topic.links.story || topic.links.aihot);
-    const originalUrl = topic.links && topic.links.original;
-    return `<article class="aihot-topic-card">
-      <div class="aihot-topic-rank">${rank}</div>
-      <div class="aihot-topic-main">
-        <div class="aihot-topic-kicker">
-          <span>${escapeHtml(`${Number(topic.sourceCount) || 0} 个来源 · ${Number(topic.signalCount) || 0} 条信号`)}</span>
-          <time>${escapeHtml(timeAgo(Date.parse(topic.latestAt || '') || 0))}</time>
-        </div>
-        <h3>${escapeHtml(topic.title || '未命名热点')}</h3>
-        <p>${escapeHtml(sources.join('、'))}${moreSources ? ` 等 ${moreSources} 个来源` : ''}</p>
-        <div class="aihot-topic-actions">
-          ${storyUrl ? `<a href="${escapeHtml(storyUrl)}" target="_blank" rel="noopener noreferrer nofollow">事件时间线</a>` : ''}
-          ${originalUrl ? `<a href="${escapeHtml(originalUrl)}" target="_blank" rel="noopener noreferrer nofollow">首要来源</a>` : ''}
-        </div>
-      </div>
-    </article>`;
-  }).join('')}</div>`;
 }
 
 function selectListScope(scope = 'latest') {
@@ -3292,7 +3215,6 @@ function renderArticleInfoPanel(entry = state.activeEntry) {
   const assets = mergeAssets(entry);
   const assetItems = entryAssetItems(entry);
   const qScore = qScoreParts(entry);
-  const externalSignal = aihotSignal(entry);
   const canonicalUrl = readerUrlFor(entry, state.readerTab, readerShareFocus(), state.readerAssetId).href;
   if (workbenchTitle) workbenchTitle.textContent = plainSnippet(entry.titleZh || entry.title || '当前文章', 28);
   if (!titleEl || !body) return;
@@ -3328,16 +3250,6 @@ function renderArticleInfoPanel(entry = state.activeEntry) {
       </div>
       <div class="article-qscore-parts">${qScore.parts.map(part => `<span>${escapeHtml(part)}</span>`).join('')}</div>
     </div>
-    ${externalSignal ? `<div class="article-info-group article-external-signal">
-      <span class="article-info-label">外部信号</span>
-      <div class="article-external-signal-head">
-        <strong>${externalSignal.selected ? 'AIHOT 精选' : 'AIHOT'}</strong>
-        ${Number.isFinite(Number(externalSignal.score)) ? `<span>${escapeHtml(String(Number(externalSignal.score)))} 分</span>` : ''}
-      </div>
-      ${externalSignal.sourceName ? `<div class="article-info-meta">${escapeHtml(externalSignal.sourceName)}</div>` : ''}
-      ${externalSignal.reason ? `<p>${escapeHtml(externalSignal.reason)}</p>` : ''}
-      ${externalSignal.providerUrl ? `<a href="${escapeHtml(externalSignal.providerUrl)}" target="_blank" rel="noopener noreferrer nofollow">查看 AIHOT 条目</a>` : ''}
-    </div>` : ''}
     <div class="article-info-group">
       <span class="article-info-label">原文状态</span>
       <strong>${escapeHtml(originalState)}</strong>
@@ -3789,12 +3701,7 @@ function renderList() {
   $('#app').classList.toggle('home-assets', isHomeScope() && state.homeTab === 'assets');
   renderListScopeBar();
   renderEntryPaneTabs();
-  $('#mark-read-btn').classList.toggle('hidden', state.view === 'contributors' || state.view === 'aihot' || (isHomeScope() && state.homeTab === 'assets'));
-  if (state.view === 'aihot') {
-    renderAssetActivityStrip();
-    renderAihotTopicsDirectory();
-    return;
-  }
+  $('#mark-read-btn').classList.toggle('hidden', state.view === 'contributors' || (isHomeScope() && state.homeTab === 'assets'));
   if (state.view === 'contributors') {
     renderContributorDirectory();
     return;
@@ -3831,8 +3738,7 @@ function renderList() {
     const assetsHtml = assetBadgesHtml(e, { interactive: true });
     const entryActivity = assetActivityLabel(e) || entryHistoryLabel(e) || hotEntryLabel(e);
     const statsLine = entryStatsLabel(e);
-    const signalHtml = aihotSignalBadgeHtml(e);
-    const metaRow = [signalHtml, statsLine ? `<span class="entry-stats">${escapeHtml(statsLine)}</span>` : '', assetsHtml ? `<span class="asset-badges entry-asset-badges">${assetsHtml}</span>` : ''].filter(Boolean).join('');
+    const metaRow = [statsLine ? `<span class="entry-stats">${escapeHtml(statsLine)}</span>` : '', assetsHtml ? `<span class="asset-badges entry-asset-badges">${assetsHtml}</span>` : ''].filter(Boolean).join('');
     const assetPreview = assetPreviewForEntry(e);
     const assetItems = assetItemListHtml(e);
     const publishedLabel = timeAgo(e.publishedTs);
@@ -3957,7 +3863,6 @@ function updateListTitle() {
   else if (state.view === 'unread') title = '未读';
   else if (state.view === 'starred') title = '收藏';
   else if (state.view === 'history') title = '浏览记录';
-  else if (state.view === 'aihot') title = '全网热点';
   else if (state.view === 'assets') {
     const prefix = state.assetSort === 'helpful' ? '有用 · ' : '';
     title = `${prefix}${state.assetFilter ? `${assetDirectoryLabel(state.assetFilter)}资产` : '公开资产'}`;
@@ -3972,8 +3877,8 @@ function updateListTitle() {
 function updateSearchPlaceholder() {
   const search = $('#search');
   if (!search) return;
-  search.disabled = state.view === 'aihot';
-  search.placeholder = state.view === 'aihot' ? '热点由多来源实时聚合' : state.view === 'contributors' ? '搜索贡献榜…' : state.view === 'assets' ? '搜索资产…' : '搜索文章…';
+  search.disabled = false;
+  search.placeholder = state.view === 'contributors' ? '搜索贡献榜…' : state.view === 'assets' ? '搜索资产…' : '搜索文章…';
   if (search.value !== state.q) search.value = state.q;
 }
 
@@ -8396,19 +8301,6 @@ function selectView(v) {
   state.readerAssetId = '';
   if (v !== 'assets') state.assetSort = 'latest';
   if (v !== 'contributors') state.contributorSort = 'latest';
-  if (v === 'aihot') {
-    state.q = '';
-    const topicsRequest = loadAihotTopics().catch(error => {
-      toast('全网热点加载失败: ' + error.message, 5000);
-      return [];
-    });
-    reload().then(() => topicsRequest).then(() => {
-      updateListTitle();
-      renderList();
-      renderSidebar();
-    });
-    return;
-  }
   if (v === 'assets' || v === 'contributors') {
     syncListUrl();
     void reload({ clearUrl: false }).catch(error => {
