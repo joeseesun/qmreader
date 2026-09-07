@@ -1929,6 +1929,16 @@ app.get(['/me', '/dashboard', '/admin'], (req, res) => {
   res.type('html').send(renderIndex(req));
 });
 
+app.get('/privacy', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
+});
+
+app.get('/support', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public', 'support.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, file) {
     if (file.endsWith('.html')) {

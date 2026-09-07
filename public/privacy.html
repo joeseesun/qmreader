@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QMReader 隐私政策</title>
+  <meta name="description" content="QMReader iOS 应用隐私政策：本机阅读数据、链接提交、服务端处理和用户选择。">
+  <style>
+    :root { color-scheme: light dark; --paper:#f9f6ee; --ink:#201d19; --muted:#746c61; --line:rgba(56,45,32,.14); --accent:#a6592e; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:17px/1.82 ui-serif,"Songti SC","Noto Serif CJK SC",serif; }
+    main { width:min(720px,calc(100% - 40px)); margin:0 auto; padding:72px 0 96px; }
+    h1 { margin:0 0 8px; font-size:clamp(34px,7vw,54px); line-height:1.12; letter-spacing:-.04em; }
+    h2 { margin:48px 0 12px; font-size:22px; line-height:1.4; }
+    p, li { text-wrap:pretty; }
+    .eyebrow,.updated { color:var(--muted); font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif; letter-spacing:.12em; text-transform:uppercase; }
+    .lede { margin:30px 0; padding:24px 0; border-block:1px solid var(--line); font-size:20px; }
+    a { color:var(--accent); text-underline-offset:.18em; }
+    footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--line); color:var(--muted); font:14px/1.7 ui-sans-serif,system-ui,sans-serif; }
+    @media (prefers-color-scheme:dark) { :root { --paper:#171511; --ink:#ede6d8; --muted:#aaa092; --line:rgba(236,226,210,.15); --accent:#df9365; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">QMReader · Privacy</div>
+  <h1>隐私政策</h1>
+  <p class="updated">生效日期：2026 年 9 月 7 日</p>
+  <p class="lede">QMReader 是一款面向中文长文阅读的原生 iOS 阅读器。我们不投放广告、不跨应用跟踪用户，也不出售个人数据。</p>
+
+  <h2>1. 无需账号即可阅读</h2>
+  <p>iOS App 的文章列表、频道、翻译和乔木改写可以直接使用，无需注册或登录。App 会从 <a href="https://rss.qiaomu.ai">rss.qiaomu.ai</a> 请求公开的 RSS、文章、翻译和改写内容。</p>
+
+  <h2>2. 留在设备上的数据</h2>
+  <p>已读状态、收藏、阅读外观、字体选择和离线缓存保存在你的设备上。QMReader 不会把这些阅读偏好上传到服务器。你可以通过删除 App 清除这些本机数据。</p>
+
+  <h2>3. 主动提交链接时</h2>
+  <p>只有当你明确选择“加入乔木阅读”时，App 才会把目标 URL 和一个由 App 随机生成的设备标识符发送到 QMReader 服务端。URL 用于抓取、生成中文改写和去重；随机标识符仅用于防滥用和限流，不用于广告、画像或跨 App 跟踪。</p>
+  <p>请勿提交私密、需要授权访问或包含个人敏感信息的链接。提交的公开网页可能在处理后进入 QMReader 的公开内容库。</p>
+
+  <h2>4. 服务端处理</h2>
+  <p>服务器可能处理 IP 地址、请求时间和基础技术日志，以保障安全、诊断故障和限制滥用。被提交的公开网页内容可能由受委托的 AI 服务处理，以生成标题翻译或中文改写。我们不将这些数据用于第三方广告。</p>
+
+  <h2>5. 第三方内容与外部链接</h2>
+  <p>QMReader 展示来自公开 RSS 和网页的信息，并保留原始来源链接。打开原文会离开 App，进入 Safari 或相应网站；第三方网站的数据处理受其自身隐私政策约束。</p>
+
+  <h2>6. 数据选择与请求</h2>
+  <p>你可以不使用链接提交功能，并仍然使用完整阅读体验。如需反馈隐私问题、请求删除你提交的链接或举报不当内容，请通过 <a href="https://rss.qiaomu.ai/support">支持页面</a> 联系维护者。</p>
+
+  <h2>7. 政策更新</h2>
+  <p>当 App 的数据处理方式发生实质变化时，我们会更新本页面的生效日期，并同步更新 App Store 隐私信息。</p>
+
+  <h2>English summary</h2>
+  <p>QMReader does not show ads, track users across apps, or sell personal data. Reading preferences, read/favorite state, and caches stay on device. The app contacts rss.qiaomu.ai for public feed and article content. Only when you explicitly submit a link does the app send that URL and a random app-generated identifier for processing, deduplication, security, and rate limiting. Submitted public pages may enter QMReader's public content library. See the sections above or contact us through the <a href="https://rss.qiaomu.ai/support">support page</a>.</p>
+
+  <footer>QMReader · 向阳乔木 / Joe · <a href="https://github.com/joeseesun/qmreader-ios">开源代码</a> · <a href="https://rss.qiaomu.ai">返回阅读器</a></footer>
+</main>
+</body>
+</html>
