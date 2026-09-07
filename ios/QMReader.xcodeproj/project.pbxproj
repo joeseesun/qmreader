@@ -26,6 +26,7 @@
 		010000000000000000000012 /* SourceHanSerifCN-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000013 /* SourceHanSerifCN-Regular.otf */; };
 		010000000000000000000013 /* WenJinMinchoP0-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000014 /* WenJinMinchoP0-Regular.otf */; };
 		010000000000000000000014 /* Licenses in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000015 /* Licenses */; };
+		010000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 020000000000000000000016 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +51,7 @@
 		020000000000000000000013 /* SourceHanSerifCN-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "SourceHanSerifCN-Regular.otf"; sourceTree = "<group>"; };
 		020000000000000000000014 /* WenJinMinchoP0-Regular.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "WenJinMinchoP0-Regular.otf"; sourceTree = "<group>"; };
 		020000000000000000000015 /* Licenses */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Licenses; sourceTree = "<group>"; };
+		020000000000000000000016 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,6 +90,7 @@
 				02000000000000000000000C /* ChannelViews.swift */,
 				040000000000000000000003 /* Fonts */,
 				020000000000000000000004 /* Info.plist */,
+				020000000000000000000016 /* PrivacyInfo.xcprivacy */,
 				020000000000000000000005 /* Assets.xcassets */,
 			);
 			path = QMReader;
@@ -180,6 +183,7 @@
 				010000000000000000000012 /* SourceHanSerifCN-Regular.otf in Resources */,
 				010000000000000000000013 /* WenJinMinchoP0-Regular.otf in Resources */,
 				010000000000000000000014 /* Licenses in Resources */,
+				010000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -331,15 +335,15 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QMReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -355,15 +359,15 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = QMReader/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.qiaomu.qmreader.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
