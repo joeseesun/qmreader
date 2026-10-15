@@ -717,7 +717,7 @@ const state = {
   personaAgentEntryId: '',
   personaAgentMessageKey: '',
   personaAgentReady: false,
-  agentCollapsed: storage.getItem('qm_agent_collapsed') === '1',
+  agentCollapsed: storage.getItem('qm_agent_open') !== '1', // AI companion opens on demand; the old qm_agent_collapsed key is ignored
   agentAutoCollapsed: false,
   sidebarCollapsed: storage.getItem('qm_sidebar_collapsed') === '1',
   leftCollapsed: storage.getItem('qm_left_collapsed') === '1',
@@ -9738,7 +9738,7 @@ function setAgentCollapsed(collapsed, { persist: shouldPersist = true, auto = fa
   if (!collapsed && shouldCollapseLeftForContext()) setLeftCollapsed(true);
   state.agentCollapsed = collapsed;
   state.agentAutoCollapsed = Boolean(collapsed && auto);
-  if (shouldPersist) storage.setItem('qm_agent_collapsed', collapsed ? '1' : '0');
+  if (shouldPersist) storage.setItem('qm_agent_open', collapsed ? '0' : '1');
   $('#app').classList.toggle('agent-collapsed', collapsed);
   if (collapsed) $('#app').style.removeProperty('--agent-width');
   const rail = $('#context-open-rail');
@@ -9828,7 +9828,7 @@ function normalizeReaderWorkbenchLayout() {
     setAgentCollapsed(true, { persist: false, auto: true });
     return;
   }
-  if (state.agentAutoCollapsed && storage.getItem('qm_agent_collapsed') !== '1' && !shouldCollapseLeftForContext()) {
+  if (state.agentAutoCollapsed && storage.getItem('qm_agent_open') === '1' && !shouldCollapseLeftForContext()) {
     setAgentCollapsed(false, { persist: false });
   }
 }

@@ -1,0 +1,366 @@
+/* Workbench layer. Loaded after styles.css; only restyles and re-arranges.
+ * Selectors keep the #app prefix so they win over the older override blocks
+ * without !important. Dark theme keeps its own palette from styles.css. */
+
+[data-theme="light"] {
+  --bg-0: #f6f6f5;
+  --bg-1: #fbfbfa;
+  --bg-2: #efefed;
+  --bg-3: #e6e6e3;
+  --surface: #ffffff;
+  --border: #e4e4e0;
+  --border-subtle: #ececE9;
+  --text-0: #171717;
+  --text-1: #4c4c48;
+  --text-2: #85857f;
+  --signal: #2563c9;
+  --focus-ring: #2563c9;
+}
+[data-theme="dark"] {
+  --signal: #6b9bff;
+  --focus-ring: #6b9bff;
+}
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+/* ---------- layout ---------- */
+#app {
+  --sidebar-width: 208px;
+  --entry-width: minmax(296px, 320px);
+  --agent-width: 340px;
+}
+#app.sidebar-collapsed { --sidebar-width: 64px; }
+
+/* ---------- sidebar: fewer rows, quieter ---------- */
+#app #sidebar { background: var(--bg-0); }
+/* 未读 / 热门 are the same filters as the list tabs; the list owns them now. */
+#app .view-btn[data-view="unread"],
+#app .view-btn[data-view="hot"] { display: none; }
+#app .view-btn { height: 32px; border-radius: 7px; }
+#app .view-btn.active { background: rgba(17, 17, 17, 0.07); font-weight: 600; }
+[data-theme="dark"] #app .view-btn.active { background: rgba(255, 255, 255, 0.1); }
+#app .sidebar-submit-link {
+  background: transparent;
+  color: var(--text-1);
+  border: 1px dashed var(--border);
+  box-shadow: none;
+  height: 32px;
+  font-weight: 500;
+}
+#app .sidebar-submit-link:hover { background: rgba(17, 17, 17, 0.045); color: var(--text-0); }
+/* Asset stats are secondary: keep one quiet row, drop the filter grid. */
+#app .asset-dashboard { padding: 0 8px; }
+#app .asset-dashboard .asset-dashboard-grid,
+#app .asset-dashboard .asset-dashboard-action { display: none; }
+#app .asset-dashboard-open {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+}
+#app .asset-dashboard-open:hover { background: rgba(17, 17, 17, 0.045); }
+#app .asset-dashboard-open strong { color: var(--text-1); font-weight: 600; }
+
+/* ---------- list ---------- */
+#app #entry-pane { background: var(--bg-1); }
+#app .list-scope-bar {
+  display: flex;
+  gap: 2px;
+  margin: 8px 12px 0;
+  padding: 3px;
+  background: var(--bg-2);
+  border-radius: 8px;
+}
+#app .list-scope-btn {
+  flex: 1;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+}
+#app .list-scope-btn.active {
+  background: var(--surface);
+  color: var(--text-0);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+#app .entry-card { border-radius: 8px; }
+#app .entry-card.active { background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); }
+#app .entry-card.read .entry-title { color: var(--text-1); font-weight: 500; }
+#app .entry-card:not(.read) .entry-title { color: var(--text-0); font-weight: 650; }
+#app .unread-dot { background: var(--signal); }
+
+/* ---------- reader ---------- */
+#app #reader-pane > #reader { padding: 0 var(--wb-pad, 56px) 120px; }
+#app #reader > .reader-tabs,
+#app #reader .reader-signal-rail,
+#app #reader .reader-head .reader-toolbar { display: none; }
+
+#app .wb-bar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  margin: 0 calc(var(--wb-pad, 56px) * -1) 8px;
+  padding: 0 var(--wb-pad, 56px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+}
+#app .wb-modes {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+#app .wb-modes button {
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12.5px;
+}
+#app .wb-modes button[aria-pressed="true"] { background: var(--text-0); color: var(--surface); }
+#app .wb-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+#app .wb-actions > .ghost-btn,
+#app .wb-actions > .reader-action-pill,
+#app .wb-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12.5px;
+}
+#app .wb-actions .button-label,
+#app .wb-actions .reader-action-label { display: none; }
+#app .wb-actions > .ghost-btn:hover,
+#app .wb-actions > .reader-action-pill:hover,
+#app .wb-more-btn:hover { background: rgba(17, 17, 17, 0.05); color: var(--text-0); }
+#app .wb-actions > [aria-pressed="true"],
+#app .wb-actions > .active { background: rgba(17, 17, 17, 0.07); color: var(--text-0); }
+#app .wb-actions > #reader-star.active,
+#app .wb-actions > #reader-star[aria-pressed="true"] { color: #c98a12; }
+#app .wb-actions > #reader-star.active svg,
+#app .wb-actions > #reader-star[aria-pressed="true"] svg { fill: currentColor; }
+#app .wb-actions .reader-action-count { font-variant-numeric: tabular-nums; color: inherit; }
+#app .wb-actions .reader-action-count:empty { display: none; }
+
+#app .wb-more { position: relative; }
+#app .wb-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 188px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+#app .wb-menu.hidden { display: none; }
+#app .wb-menu > * {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+}
+#app .wb-menu > .hidden { display: none; }
+#app .wb-menu > *:hover { background: rgba(17, 17, 17, 0.05); color: var(--text-0); }
+#app .wb-actions .wb-menu .button-label,
+#app .wb-actions .wb-menu .reader-action-label { display: inline; }
+#app .wb-menu .reader-action-count { margin-left: auto; color: var(--text-2); }
+#app .wb-menu #reader-delete { color: var(--semantic-red); }
+#app .wb-more #reader-preferences {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 21;
+  width: min(360px, 90vw);
+}
+
+/* header: let the title lead */
+#app .reader-head { padding-top: 28px; }
+#app .reader-source { color: var(--text-1); }
+
+/* ---------- next-article card ---------- */
+#app .wb-next {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: var(--reader-column, 640px);
+  margin: 40px auto 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-0);
+  text-align: left;
+}
+#app .wb-next.hidden { display: none; }
+#app .wb-next:hover { background: rgba(17, 17, 17, 0.04); }
+#app .wb-next-text { min-width: 0; flex: 1; }
+#app .wb-next small { display: block; font-size: 12px; color: var(--text-2); }
+#app .wb-next b {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .wb-next kbd {
+  font: 11px var(--font-ui);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* ---------- immersive keeps the bar, drops the chrome ---------- */
+#app.reader-immersive .wb-bar { background: var(--surface); }
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 760px) {
+  #app #reader-pane > #reader { --wb-pad: 20px; }
+  #app .wb-bar { height: 48px; gap: 4px; }
+  #app .wb-ai { display: none; } /* the mobile top bar already carries AI */
+  #app .wb-modes button { padding: 0 9px; }
+  #app .wb-next { margin-top: 28px; }
+  #app .wb-menu { right: -4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app * { transition: none !important; }
+}
+
+/* brand row fits the narrower sidebar */
+#app .brand { gap: 4px; padding-inline: 12px 8px; }
+#app .brand .icon-btn { width: 28px; height: 28px; }
+#app .brand-name { white-space: nowrap; }
+
+/* reading surface is paper-white in the light theme */
+body[data-theme="light"] #app > #reader-pane { background: var(--surface); }
+
+/* the pill label is visually hidden by default; show it inside the menu */
+#app .wb-actions .wb-menu .reader-action-label {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: nowrap;
+}
+
+/* dark theme: hover and pressed tints must lighten, not darken */
+[data-theme="dark"] #app .wb-actions > .ghost-btn:hover,
+[data-theme="dark"] #app .wb-actions > .reader-action-pill:hover,
+[data-theme="dark"] #app .wb-more-btn:hover,
+[data-theme="dark"] #app .wb-menu > *:hover,
+[data-theme="dark"] #app .wb-next:hover,
+[data-theme="dark"] #app .sidebar-submit-link:hover,
+[data-theme="dark"] #app .asset-dashboard-open:hover { background: rgba(255, 255, 255, 0.07); }
+[data-theme="dark"] #app .wb-actions > [aria-pressed="true"],
+[data-theme="dark"] #app .wb-actions > .active { background: rgba(255, 255, 255, 0.11); }
+[data-theme="dark"] #app .wb-menu { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+
+/* ================= polish pass ================= */
+/* sidebar: wider so the brand never truncates; quiet submit row */
+#app { --sidebar-width: 220px; }
+#app.sidebar-collapsed { --sidebar-width: 64px; }
+#app .brand-name { font-size: 14px; letter-spacing: -0.01em; }
+#app #sidebar #submit-link-open {
+  background: transparent;
+  color: var(--text-1);
+  border: 1px dashed var(--border);
+  box-shadow: none;
+  height: 32px;
+  font-weight: 500;
+}
+#app #sidebar #submit-link-open:hover { background: rgba(17, 17, 17, 0.045); color: var(--text-0); }
+[data-theme="dark"] #app #sidebar #submit-link-open:hover { background: rgba(255, 255, 255, 0.07); }
+#app .view-btn { height: 32px; font-size: 13.5px; }
+#app .feed-item { height: 30px; border-radius: 7px; }
+#app .feed-item .err-dot { opacity: 0.6; }
+
+/* list: calmer header, A-style rows */
+#app .pane-header { padding-top: 12px; }
+#app .entry-pane-tabs { margin: 6px 12px 0; padding: 0; border: 0; gap: 14px; }
+#app .entry-pane-tab { font-size: 12.5px; color: var(--text-2); padding: 8px 0; }
+#app .entry-pane-tab.active { color: var(--text-0); font-weight: 600; }
+#app .entry-list { padding: 4px 6px 16px; }
+#app .entry-card { padding: 11px 12px 12px 22px; margin: 0 0 2px; }
+#app .entry-card:hover { background: rgba(17, 17, 17, 0.04); }
+#app .entry-card.active:hover { background: var(--surface); }
+[data-theme="dark"] #app .entry-card:hover { background: rgba(255, 255, 255, 0.05); }
+#app .entry-card .unread-dot { left: 9px; }
+#app .entry-source-line .src { font-size: 12px; color: var(--text-2); }
+#app .entry-time { font-size: 12px; color: var(--text-2); }
+#app .entry-card .entry-title { margin-top: 5px; font-size: 14.5px; line-height: 1.45; }
+#app .entry-card .entry-summary { margin-top: 4px; font-size: 12.5px; line-height: 1.55; color: var(--text-2); }
+
+/* reader bar: source crumb on the left, controls on the right */
+#app .wb-crumb {
+  min-width: 0;
+  max-width: 28%;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .wb-modes { margin-left: auto; }
+#app .wb-actions { margin-left: 4px; }
+
+/* reader header: title leads, meta whispers */
+#app #reader .reader-head { padding-top: 30px; padding-bottom: 20px; margin-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
+#app #reader .reader-kicker-row { margin-bottom: 14px; }
+#app #reader .reader-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+#app #reader .reader-meta-row,
+#app #reader .reader-meta,
+#app #reader .reader-view-count { font-size: 12.5px; color: var(--text-2); }
+#app #reader #reader-title { font-size: clamp(24px, 2vw, 28px); font-weight: 650; line-height: 1.38; }
+#app #reader .reader-title-zh { margin-top: 6px; font-size: 14.5px; }
+#app #reader .reader-content { margin-top: 6px; }
+@media (max-width: 760px) { #app .wb-crumb { display: none; } #app .wb-modes { margin-left: 0; } }
