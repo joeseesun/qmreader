@@ -729,3 +729,115 @@ body[data-theme="light"] #app > #reader-pane { background: var(--surface); }
 }
 #app .wb-rewrite-slot > #reader-rewrite:hover:not(:disabled) { opacity: 0.85; }
 #app #reader #reader-rewrite-panel > .reader-section-head { display: none; }
+/* ================= round 4: CJK + Latin mixed typesetting =================
+ * Research notes: docs/reader-typography.md. Everything here degrades to plain
+ * text where a property is unsupported (text-autospace / text-spacing-trim are
+ * the newest; the rest is old). Left-aligned everywhere: justify spreads Latin
+ * word gaps and gains nothing for ragged-right CJK. */
+#app #reader .reader-content,
+#app #reader .rewrite-content,
+#app #reader .translation-target.reader-content {
+  text-align: start;
+  text-justify: inter-character;
+  word-break: normal;
+  line-break: strict;
+  hyphens: manual;
+  text-autospace: normal;          /* thin gap between Han and Latin / digits */
+  text-spacing-trim: space-first;  /* squeeze stacked full-width punctuation */
+  hanging-punctuation: first allow-end;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  font-variant-numeric: proportional-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+/* an inline align="justify" from the source markup must not win */
+#app #reader :is(.reader-content, .rewrite-content, .translation-target) :is(p, li, div, td, th, h1, h2, h3, h4, blockquote, figcaption) { text-align: start; }
+
+/* English blocks: real hyphenation, tighter leading, no Chinese tracking */
+#app #reader :is(.reader-content, .rewrite-content, .translation-target):lang(en),
+#app #reader :is(.reader-content, .rewrite-content, .translation-target) :lang(en) {
+  hyphens: auto;
+  hyphenate-limit-chars: 7 3 3;
+  hyphenate-limit-lines: 2;
+  line-break: auto;
+  letter-spacing: 0;
+  word-spacing: 0;
+}
+#app #reader[data-reader-language="cjk"] :is(p, li, blockquote):lang(en),
+#app #reader[data-reader-language="mixed"] :is(p, li, blockquote):lang(en) {
+  line-height: calc(var(--reader-line-height-effective, 1.86) - 0.16);
+}
+/* Chinese blocks: a hair of tracking reads calmer at body size */
+#app #reader :is(p, li, blockquote, figcaption):lang(zh) { letter-spacing: 0.012em; }
+#app #reader :is(h1, h2, h3, h4):lang(zh) { letter-spacing: 0; }
+
+/* headings that pair Chinese with English break at phrase edges, not mid-word */
+#app #reader :is(.reader-content, .rewrite-content) :is(h1, h2, h3, h4),
+#app #reader .reader-title-zh,
+#app #reader #reader-title {
+  text-wrap: balance;
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: manual;
+}
+
+/* long URLs and tokens wrap instead of pushing the column wider */
+#app #reader :is(.reader-content, .rewrite-content, .translation-target) a {
+  overflow-wrap: anywhere;
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.06em;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 0.2em;
+  text-decoration-skip-ink: auto;
+}
+#app #reader :is(.reader-content, .rewrite-content, .translation-target) a:hover { text-decoration-color: currentColor; }
+
+/* code: monospace, never autospaced or hyphenated, scrolls instead of wrapping */
+#app #reader :is(.reader-content, .rewrite-content) code {
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace);
+  font-size: 0.86em;
+  padding: 0.12em 0.4em;
+  border-radius: 5px;
+  background: var(--bg-2);
+  text-autospace: no-autospace;
+  hyphens: none;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+}
+#app #reader :is(.reader-content, .rewrite-content) pre {
+  padding: 14px 16px;
+  border: 0;
+  background: var(--bg-2);
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+  text-autospace: no-autospace;
+  hyphens: none;
+  overflow-wrap: normal;
+}
+#app #reader :is(.reader-content, .rewrite-content) pre code { padding: 0; background: none; font-size: inherit; overflow-wrap: normal; }
+
+/* lists, quotes, tables */
+#app #reader :is(.reader-content, .rewrite-content) li::marker { color: var(--text-2); }
+#app #reader :is(.reader-content, .rewrite-content) li > :is(ul, ol) { margin: 0.35em 0 0; }
+#app #reader :is(.reader-content, .rewrite-content) blockquote { border-left: 0; text-wrap: pretty; }
+#app #reader :is(.reader-content, .rewrite-content) table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.92em; }
+#app #reader :is(.reader-content, .rewrite-content) :is(td, th) { padding: 0.45em 0.8em; border: 1px solid var(--border-subtle); text-align: start; vertical-align: top; }
+#app #reader :is(.reader-content, .rewrite-content) th { background: var(--bg-2); font-weight: 600; }
+
+/* images: a logo-sized image stays crisp, a wide one fills the column */
+#app #reader :is(.reader-content, .rewrite-content) img { max-width: 100%; height: auto; }
+#app #reader :is(.reader-content, .rewrite-content) :is(video, iframe) { max-width: 100%; border-radius: 10px; }
+
+/* the article title and byline follow the same rules as the body */
+#app #reader #reader-title { line-height: 1.32; }
+#app #reader .reader-title-zh { line-height: 1.45; }
+@media (max-width: 760px) {
+  #app #reader :is(.reader-content, .rewrite-content, .translation-target) { hanging-punctuation: none; }
+  /* ~28 characters per line: a hyphen every other line is worse than a ragged edge */
+  #app #reader :is(.reader-content, .rewrite-content, .translation-target):lang(en),
+  #app #reader :is(.reader-content, .rewrite-content, .translation-target) :lang(en) { hyphens: manual; }
+  #app #reader #reader-title { font-size: 24px; }
+}
+#app .wb-modes button { white-space: nowrap; flex: none; }
