@@ -4581,21 +4581,22 @@ function readerLanguageProfile(text) {
 
 function adaptiveReaderMeasure(profile, prefs = state.readerPrefs) {
   const measure = normalizeReaderPrefs(prefs).measure;
-  // Book-page measure: ~32-38 CJK characters per line (35em at the default setting).
+  // Book-page measure: ~36-42 CJK characters per line (39em at the default setting);
+  // clreq suggests 35-45 for screens, and the workbench gives the column more room.
   if (profile === 'cjk') {
     return {
-      value: clampNumber(32 + (measure - 56) * (6 / 28), 32, 38, 35),
+      value: clampNumber(36 + (measure - 56) * (6 / 28), 36, 42, 39),
       unit: 'em',
     };
   }
   if (profile === 'mixed') {
     return {
-      value: clampNumber(33 + (measure - 56) * (6 / 28), 33, 39, 36),
+      value: clampNumber(37 + (measure - 56) * (6 / 28), 37, 43, 40),
       unit: 'em',
     };
   }
   return {
-    value: clampNumber(measure, 60, 76, 70),
+    value: clampNumber(measure + 2, 62, 78, 72),
     unit: 'ch',
   };
 }
