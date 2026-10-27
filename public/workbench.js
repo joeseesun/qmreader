@@ -290,6 +290,44 @@
       syncListMeta();
     });
   };
+  /* ---------- per-block language ----------
+   * The page is lang="zh-CN", so an English paragraph would inherit Chinese line
+   * breaking and never hyphenate. Tag each block by what it actually contains;
+   * the CSS keys off :lang(en) / :lang(zh). Only the lang attribute is touched,
+   * never the text, so selections and annotations keep their offsets. */
+  const CJK_RE = /[㐀-鿿豈-﫿]/g;
+  const LATIN_RE = /[A-Za-z]/g;
+  const BLOCKS = 'p,li,h1,h2,h3,h4,h5,h6,blockquote,figcaption,dt,dd,td,th';
+  const tagBlocks = root => {
+    $$(BLOCKS, root).forEach(el => {
+      if (el.closest('pre, code')) return;
+      const text = el.textContent || '';
+      if (el.__wbLangLen === text.length) return;
+      el.__wbLangLen = text.length;
+      const cjk = (text.match(CJK_RE) || []).length;
+      const latin = (text.match(LATIN_RE) || []).length;
+      let lang = '';
+      if (!cjk && latin >= 8) lang = 'en';
+      else if (cjk && cjk / (cjk + latin) >= 0.3) lang = 'zh-CN';
+      if (lang) el.setAttribute('lang', lang); else el.removeAttribute('lang');
+    });
+  };
+  let tagQueued = false;
+  const tagAll = () => {
+    if (tagQueued) return;
+    tagQueued = true;
+    requestAnimationFrame(() => {
+      tagQueued = false;
+      ['#reader-content', '#rewrite-content', '#translation-list'].forEach(sel => { const root = $(sel); if (root) tagBlocks(root); });
+    });
+  };
+  const tagObserver = new MutationObserver(tagAll);
+  ['#reader-content', '#rewrite-content', '#translation-list'].forEach(sel => {
+    const root = $(sel);
+    if (root) tagObserver.observe(root, { childList: true, subtree: true, characterData: true });
+  });
+  tagAll();
+
   const observer = new MutationObserver(syncAll);
   [
     ['#reader-original-panel', { attributes: true, attributeFilter: ['class'] }],
