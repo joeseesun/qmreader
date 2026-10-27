@@ -264,13 +264,14 @@
   };
 
   /* scrollbar only shows while the pane is scrolling */
-  const scrollPane = $('#reader-pane');
-  let scrollTimer = 0;
-  scrollPane?.addEventListener('scroll', () => {
-    scrollPane.classList.add('wb-scrolling');
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => scrollPane.classList.remove('wb-scrolling'), 900);
-  }, { passive: true });
+  for (const pane of [$('#reader-pane'), $('#feed-groups'), $('#entry-list')]) {
+    let scrollTimer = 0;
+    pane?.addEventListener('scroll', () => {
+      pane.classList.add('wb-scrolling');
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => pane.classList.remove('wb-scrolling'), 900);
+    }, { passive: true });
+  }
 
   /* ---------- keep everything in sync ---------- */
   let queued = false;

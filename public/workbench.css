@@ -12,7 +12,7 @@
   --border-subtle: #ececE9;
   --text-0: #171717;
   --text-1: #4c4c48;
-  --text-2: #85857f;
+  --text-2: #6b6b66;
   --signal: #2563c9;
   --focus-ring: var(--text-1);
 }
@@ -729,3 +729,82 @@ body[data-theme="light"] #app > #reader-pane { background: var(--surface); }
 }
 #app .wb-rewrite-slot > #reader-rewrite:hover:not(:disabled) { opacity: 0.85; }
 #app #reader #reader-rewrite-panel > .reader-section-head { display: none; }
+
+/* ================= refinement pass: scrollbars, rhythm, motion =================
+ * Scrollbars: thin, invisible until the pane is hovered or scrolled.
+ * Chrome 121+ and Firefox use scrollbar-width / scrollbar-color; the
+ * ::-webkit-scrollbar rules are only a fallback for older Safari, because
+ * Chrome ignores them as soon as scrollbar-color is set. */
+:root {
+  --wb-thumb: rgba(0, 0, 0, 0.26);
+  --wb-ease: cubic-bezier(0.2, 0, 0, 1);
+  --wb-dur: 120ms;
+}
+[data-theme="dark"] { --wb-thumb: rgba(255, 255, 255, 0.24); }
+html { scrollbar-width: thin; scrollbar-color: var(--wb-thumb) transparent; }
+#app #feed-groups,
+#app #entry-list,
+#app .agent-messages,
+#app .wechat-list-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+#app #feed-groups:hover,
+#app #entry-list:hover,
+#app .agent-messages:hover,
+#app .wechat-list-scroll:hover,
+#app #feed-groups.wb-scrolling,
+#app #entry-list.wb-scrolling { scrollbar-color: var(--wb-thumb) transparent; }
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--wb-thumb); border: 2px solid transparent; background-clip: content-box; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-2); background-clip: content-box; }
+  #app #feed-groups:not(:hover):not(.wb-scrolling)::-webkit-scrollbar-thumb,
+  #app #entry-list:not(:hover):not(.wb-scrolling)::-webkit-scrollbar-thumb { background: transparent; }
+}
+
+/* Motion: one duration and one easing for every hover/press response. */
+#app :is(button, a, .feed-item, .entry-card, .view-btn, .icon-btn, .list-scope-btn) {
+  transition-duration: var(--wb-dur);
+  transition-timing-function: var(--wb-ease);
+}
+
+/* Type: a 4px rhythm, tabular numbers, steadier weights (650 is not a real
+ * CJK weight and rendered inconsistently between PingFang and Inter). */
+#app #entry-pane .entry-card:not(.read) .entry-title { font-weight: 600; }
+#app #entry-pane .entry-card.read .entry-title { font-weight: 400; }
+#app .entry-time,
+#app .list-meta,
+#app .pane-meta,
+#app #entry-pane .pane-header small { font-variant-numeric: tabular-nums; }
+#app #sidebar .group-label { padding: 16px 12px 4px; letter-spacing: 0.06em; }
+#app #sidebar .feed-item { padding: 0 12px; gap: 8px; line-height: 1.3; }
+#app #sidebar .feed-item .letter-icon,
+#app #sidebar .feed-item img { width: 16px; height: 16px; border-radius: 4px; flex: none; }
+#app .app-icon { stroke-width: 1.75; }
+
+/* List thumbnails sit on a placeholder tile with a hairline edge instead of a drop shadow. */
+#app #entry-pane .entry-media {
+  background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+#app #entry-pane .entry-media .entry-thumb { box-shadow: none; }
+#app #entry-pane .entry-media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  pointer-events: none;
+}
+#app #entry-pane .entry-media { position: relative; }
+
+/* Touch: rows reach 40px on coarse pointers. */
+@media (pointer: coarse) {
+  #app #sidebar .feed-item,
+  #app .view-btn { min-height: 40px; }
+  #app .icon-btn { min-width: 40px; min-height: 40px; }
+}
