@@ -10738,3 +10738,6 @@ body[data-theme="light"][data-paper="sepia"] {
   cursor: pointer;
 }
 .ai-profile-form label[hidden] { display: none; }
+
+/* Keep the original heading readable below the Chinese heading on all list widths. */
+#entry-pane .entry-original { margin-top: 3px; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
