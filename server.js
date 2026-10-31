@@ -2348,16 +2348,7 @@ function rewriteResponse(entry, viewer = null, assetId = '') {
 }
 
 async function translateMissingTitles(limit = TITLE_TRANSLATION_LIMIT) {
-  if (!deepseek.getConfig().configured) return 0;
-  const entries = fetcher.getEntries({ limit: 1000 })
-    .filter(entry => deepseek.needsTitleTranslation(entry.title) && !entry.titleZh)
-    .slice(0, limit);
-  let translated = 0;
-  for (let i = 0; i < entries.length; i += 20) {
-    const result = await deepseek.translateTitleBatch(entries.slice(i, i + 20), { author: 'system' });
-    translated += result.translations.length;
-  }
-  return translated;
+  return require('./lib/background-jobs').translateMissingTitles(limit);
 }
 
 async function translateSubmittedTitle(entry) {
@@ -2504,8 +2495,7 @@ function autoRewriteSourceIdsFromRefresh(refresh, job = {}) {
 }
 
 function queueAutoRewriteForRefresh(refresh, job = {}) {
-  const sourceIds = autoRewriteSourceIdsFromRefresh(refresh, job)
-    .filter(id => fetcher.getSourceById(id)?.autoRewrite !== false);
+  const sourceIds = autoRewriteSourceIdsFromRefresh(refresh, job);
   if (!sourceIds.length) return { started: false, skipped: 'no changed sources' };
   // The fetch worker already wrote the jobs to SQLite; this only drains them.
   return startAutoRewriteJob({
@@ -4069,6 +4059,25 @@ app.delete('/api/entry/:id/chat/:messageId', requireLogin, (req, res) => {
   } catch (e) {
     sendError(res, e, 'delete chat message failed');
   }
+});
+
+const refreshTitles = require('./lib/title-jobs').createTitleJobs({
+  read: ids => store.getTitleEntries(ids),
+  eligible: entry => {
+    const source = fetcher.getSourceById(entry.sourceId);
+    return source && fetcher.isEnabled(source) && (entry.titleZh || deepseek.needsEntryTitleTranslation(entry));
+  },
+  translate: entries => deepseek.translateTitleBatch(entries, { author: 'system', model: 'deepseek-flash' }),
+});
+const titleRefreshLimit = createRateLimiter({ windowMs: MINUTE_MS, max: 30, message: '标题正在更新，请稍后重试' });
+app.post('/api/title-translations', titleRefreshLimit, (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(id => typeof id === 'string') : [];
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(refreshTitles(ids, true));
+});
+app.get('/api/title-translations', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(refreshTitles(String(req.query.ids || '').split(',').slice(0, 40)));
 });
 
 app.post('/api/translate-titles', requireAdmin, async (req, res) => {

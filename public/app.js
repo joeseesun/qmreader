@@ -4147,6 +4147,36 @@ function entryListSkeletonHtml(rows = 6) {
   return listSkeletonHtml(rows);
 }
 
+let titleSyncSequence = 0;
+async function syncVisibleTitles() {
+  const sequence = ++titleSyncSequence;
+  const entries = visibleEntries().slice(0, 40).filter(entry => !entry.titleZh && /[A-Za-z]{3}/.test(entry.title || ''));
+  if (!entries.length) return;
+  const ids = entries.map(entry => entry.id);
+  try {
+    let result = await api('/api/title-translations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+    for (let attempt = 0; attempt < 60 && sequence === titleSyncSequence; attempt++) {
+      let changed = false;
+      for (const item of result.titles || []) {
+        if (!item.titleZh) continue;
+        for (const entry of state.entries) if (entry.id === item.id && entry.title === item.title && entry.titleZh !== item.titleZh) { entry.titleZh = item.titleZh; changed = true; }
+        if (state.activeEntry?.id === item.id && state.activeEntry.title === item.title) { state.activeEntry.titleZh = item.titleZh; renderTitle(state.activeEntry); }
+      }
+      if (changed) { const list = $('#entry-list'), top = list.scrollTop; renderList(); list.scrollTop = top; }
+      if (!result.pending) break;
+      await delay(2000);
+      if (sequence !== titleSyncSequence) return;
+      result = await api('/api/title-translations?ids=' + encodeURIComponent(ids.join(',')));
+    }
+  } catch { /* Preserve immediately available originals when AI is unavailable. */ }
+}
+
+function originalTitleOf(entry) {
+  const title = String(entry.title || '').trim();
+  const translated = String(entry.titleZh || '').trim();
+  return translated && /[\u3400-\u9fff]/.test(translated) && translated !== title ? title : '';
+}
+
 function renderList() {
   $('#app').classList.toggle('view-assets', state.view === 'assets');
   $('#app').classList.toggle('view-contributors', state.view === 'contributors');
@@ -4218,6 +4248,7 @@ function renderList() {
           ${state.starred.has(e.id) ? `<span class="entry-star">${lucideIcon('star')}</span>` : ''}
         </div>
         <div class="entry-title">${escapeHtml(e.titleZh || e.title)}</div>
+        ${originalTitleOf(e) ? `<div class="entry-original" lang="en">${escapeHtml(originalTitleOf(e))}</div>` : ''}
         ${summaryText ? `<div class="entry-summary">${escapeHtml(summaryText)}</div>` : ''}
       </div>
       ${e.image ? `<div class="entry-media"><img class="entry-thumb" src="${escapeHtml(e.image)}" alt="" loading="lazy" decoding="async" onerror="this.closest('.entry-media')?.remove()" /></div>` : ''}`;
@@ -5497,7 +5528,7 @@ function setReaderTitleLink(anchor, text, url, ariaPrefix = '打开原文') {
 
 function renderTitle(e) {
   const mainTitle = e.titleZh || e.title;
-  const originalTitle = e.titleZh ? e.title : '';
+  const originalTitle = originalTitleOf(e);
   const mainLink = $('#reader-title-link');
   const originalLink = $('#reader-title-original-link');
   if (mainLink) {
@@ -9106,6 +9137,7 @@ async function refreshCurrentSource() {
         if (await refreshAll() === false) throw new Error('全源更新尚未完成');
       }
       else await reload({ keepReader: true });
+      void syncVisibleTitles();
       setSourceRefreshStatus('列表已更新', 'success', { timeout: 5200 });
     } catch (error) {
       setSourceRefreshStatus('更新失败', 'error', { timeout: 5200 });
@@ -9148,6 +9180,7 @@ async function refreshCurrentSource() {
     const afterEntries = await sourceEntriesSnapshot(source.id);
     const added = newEntryCount(beforeEntries, afterEntries);
     await reload({ keepReader: true });
+    void syncVisibleTitles();
     const doneMessage = added ? `${source.name} 新增 ${added} 篇` : `${source.name} 暂无更新`;
     setSourceRefreshStatus(added ? `新增 ${added} 篇` : '暂无更新', added ? 'success' : 'muted', { timeout: 5200 });
     toast(doneMessage);
