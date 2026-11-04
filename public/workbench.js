@@ -203,9 +203,12 @@
     const mode = currentMode();
     const pressed = mode === 'original' ? 'original' : 'zh';
     modeButtons.forEach(btn => btn.setAttribute('aria-pressed', btn.dataset.wbMode === pressed ? 'true' : 'false'));
-    // Chinese articles have nothing to switch to.
-    modesGroup?.classList.toggle('hidden', rewriteStatus() === 'native');
-    const rewriteReady = rewriteStatus() === 'ready';
+    const status = rewriteStatus();
+    const rewriteReady = status === 'ready';
+    modesGroup?.classList.toggle('hidden', status === 'native');
+    const rewriteButton = $('[data-wb-mode="zh"]', bar);
+    const rewriteLabel = rewriteReady && isChineseNativeEntry(state.activeEntry) ? '乔木改写' : '中文';
+    if (rewriteButton.textContent !== rewriteLabel) rewriteButton.textContent = rewriteLabel;
     translationItem.classList.toggle('hidden', !(hasTranslation() && rewriteReady && mode !== 'original'));
     $('.button-label', translationItem).textContent = mode === 'translation' ? '回到中文改写' : '查看直译';
     const canRegen = Boolean(rewriteAction) && !rewriteAction.classList.contains('hidden') && rewriteStatus() !== 'native';
