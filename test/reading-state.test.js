@@ -176,6 +176,19 @@ test('Chinese originals open directly even when the default tab is rewrite', () 
   assert.equal(sandbox.initialReaderTab(wechat, 'rewrite'), 'rewrite');
 });
 
+test('ready rewrites stay available for Chinese podcasts that open on their show notes', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+  const sandbox = { assetCountForType: entry => Number(entry.assets?.rewrite || 0) };
+  vm.runInNewContext(source.slice(source.indexOf('function isChineseNativeEntry'), source.indexOf('function rewriteStatusBadgeHtml')), sandbox);
+  for (const sourceId of ['bannatie', 'nexttoken']) {
+    const entry = { sourceId, language: 'zh-CN' };
+    assert.equal(sandbox.initialReaderTab(entry), 'original');
+    assert.equal(sandbox.entryRewriteStatus(entry), 'native');
+    assert.equal(sandbox.entryRewriteStatus({ ...entry, rewriteReady: true }), 'ready');
+    assert.equal(sandbox.entryRewriteStatus({ ...entry, assets: { rewrite: 1 } }), 'ready');
+  }
+});
+
 test('a transient startup list error retries once without reloading the page', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
   const entry = { id: 'first' };

@@ -2576,12 +2576,12 @@ function initialReaderTab(entry, tab) {
 function entryRewriteStatus(entry = state.activeEntry) {
   // 'native' | 'ready' | 'failed' | 'pending'
   if (!entry) return 'pending';
-  if (isChineseNativeEntry(entry)) return 'native';
   const assets = entry.assets && typeof entry.assets === 'object' ? entry.assets : {};
   const raw = String(entry.rewriteStatus || assets.rewriteStatus || '').trim().toLowerCase();
   const readyFlag = entry.rewriteReady !== undefined ? entry.rewriteReady : assets.rewriteReady;
   if (readyFlag === true || raw === 'ready' || raw === 'done' || raw === 'completed') return 'ready';
   if (assetCountForType(entry, 'rewrite') > 0) return 'ready';
+  if (isChineseNativeEntry(entry)) return 'native';
   if (raw === 'failed' || raw === 'error' || raw === 'skipped') return 'failed';
   if (raw === 'pending' || raw === 'running' || raw === 'retry') return 'pending';
   return 'missing';
