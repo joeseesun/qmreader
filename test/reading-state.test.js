@@ -164,3 +164,36 @@ test('explicit generation shows progress and preserves the reader choice when it
     assert.equal(r.state[kind + 'Generating'], false);
   }
 });
+
+test('Chinese originals open directly even when the default tab is rewrite', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+  const sandbox = { normalizeReaderOpenTab: tab => tab };
+  vm.runInNewContext(source.slice(source.indexOf('function isChineseNativeEntry'), source.indexOf('function entryRewriteStatus')), sandbox);
+  const wechat = { sourceId: 'wechat-zangai', title: '偷LibTV算力被判三年' };
+  assert.equal(sandbox.initialReaderTab(wechat), 'original');
+  assert.equal(sandbox.initialReaderTab({ language: 'zh-CN' }), 'original');
+  assert.equal(sandbox.initialReaderTab({ language: 'en' }), 'rewrite');
+  assert.equal(sandbox.initialReaderTab(wechat, 'rewrite'), 'rewrite');
+});
+
+test('a transient startup list error retries once without reloading the page', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+  const entry = { id: 'first' };
+  let attempts = 0;
+  const sandbox = {
+    state: { view: 'all', optInSources: new Set() },
+    ENTRY_LIST_PAGE_SIZE: 40,
+    ENTRY_RENDER_BATCH_SIZE: 20,
+    URLSearchParams, AbortController,
+    document: { getElementById: () => null },
+    setTimeout: callback => callback(),
+    api: async () => {
+      if (++attempts === 1) throw Object.assign(new Error('Unavailable'), { status: 503 });
+      return { entries: [entry] };
+    },
+  };
+  vm.runInNewContext(source.slice(source.indexOf('const ENTRY_LIST_FIXED_VIEWS'), source.indexOf('function setEntryListUpdating')), sandbox);
+  assert.equal(await sandbox.loadEntries({ retryOnStartup: true }), true);
+  assert.equal(attempts, 2);
+  assert.equal(sandbox.state.entries[0], entry);
+});

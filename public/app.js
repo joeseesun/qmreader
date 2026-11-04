@@ -1877,7 +1877,7 @@ function entryListScopeKey() {
   return [state.view, state.filterSource || '', state.filterCategory || '', state.q || '', [...state.optInSources].sort().join(',')].join('|');
 }
 
-async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.view === 'hot' ? 'compact' : 'minimal', growWindow = false } = {}) {
+async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.view === 'hot' ? 'compact' : 'minimal', growWindow = false, retryOnStartup = false } = {}) {
   const scopeKey = entryListScopeKey();
   if (scopeKey !== state.entryListScope) {
     state.entryListScope = scopeKey;
@@ -1913,7 +1913,19 @@ async function loadEntries({ summary = state.view === 'assets' ? 'full' : state.
         } catch { /* A missing/invalid bootstrap must not block API loading. */ }
       }
     }
-    if (!data) data = await api('/api/entries?' + p.toString(), { signal: controller.signal });
+    if (!data) {
+      const url = '/api/entries?' + p.toString();
+      const options = { signal: controller.signal };
+      try {
+        data = await api(url, options);
+      } catch (error) {
+        const transient = error instanceof TypeError || [408, 502, 503, 504].includes(error.status);
+        if (!retryOnStartup || !transient) throw error;
+        await new Promise(resolve => setTimeout(resolve, 750));
+        if (controller.signal.aborted || scopeKey !== entryListScopeKey()) return false;
+        data = await api(url, options);
+      }
+    }
   } catch (err) {
     if (err && err.name === 'AbortError') return false;
     throw err;
@@ -2546,6 +2558,7 @@ function entryHasAssetType(entry, type) {
 
 function isChineseNativeEntry(entry = state.activeEntry) {
   if (!entry) return false;
+  if (String(entry.sourceId || '').startsWith('wechat-')) return true;
   const declared = String(entry.language || entry.lang || '').trim().toLowerCase();
   if (declared) return declared === 'zh' || declared.startsWith('zh-') || declared.startsWith('zh_') || declared === 'cmn';
   const sample = [entry.title, entry.summary].filter(Boolean).join('\n');
@@ -2553,6 +2566,11 @@ function isChineseNativeEntry(entry = state.activeEntry) {
   const latin = (sample.match(/[A-Za-z]/g) || []).length;
   if (!cjk && !latin) return false;
   return cjk >= 8 && cjk / Math.max(1, cjk + latin) >= 0.3;
+}
+
+function initialReaderTab(entry, tab) {
+  if (tab) return normalizeReaderOpenTab(tab);
+  return isChineseNativeEntry(entry) ? 'original' : 'rewrite';
 }
 
 function entryRewriteStatus(entry = state.activeEntry) {
@@ -8634,9 +8652,7 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
     ? 'translation'
     : requestedFocus === 'rewrite'
       ? 'rewrite'
-      : !tab && entryRewriteStatus(e) !== 'native'
-        ? 'rewrite'
-        : normalizeReaderOpenTab(tab);
+      : initialReaderTab(e, tab);
   state.read.add(e.id);
   persist();
 
@@ -11259,7 +11275,7 @@ window.addEventListener('popstate', () => { mobileReaderFromList = false; });
         if (state.entries.length) renderList();
         return value;
       }).catch(() => { toast('频道信息暂未同步，文章仍可阅读', 4000); return { refreshing: false }; });
-      await loadEntries({ summary: route.view === 'assets' ? 'full' : route.view === 'hot' ? 'compact' : 'minimal' });
+      await loadEntries({ summary: route.view === 'assets' ? 'full' : route.view === 'hot' ? 'compact' : 'minimal', retryOnStartup: true });
       updateListTitle(); renderList();
       // Catalog is supplementary; never gate first-paint on it.
       void catalogTask;
