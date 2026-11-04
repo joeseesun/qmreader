@@ -2714,7 +2714,7 @@ function visibleEntries() {
       })
       .slice(0, 80);
   }
-  if (state.view === 'unread') list = list.filter(e => !state.read.has(e.id));
+  if (state.view === 'unread') list = list.filter(e => !state.read.has(e.id) || e.id === state.activeEntry?.id);
   if (state.view === 'starred') list = list.filter(e => state.starred.has(e.id));
   if (state.view === 'history') {
     list = list
@@ -4180,7 +4180,7 @@ async function syncVisibleTitles() {
         for (const entry of state.entries) if (entry.id === item.id && entry.title === item.title && entry.titleZh !== item.titleZh) { entry.titleZh = item.titleZh; changed = true; }
         if (state.activeEntry?.id === item.id && state.activeEntry.title === item.title) { state.activeEntry.titleZh = item.titleZh; renderTitle(state.activeEntry); }
       }
-      if (changed) { const list = $('#entry-list'), top = list.scrollTop; renderList(); list.scrollTop = top; }
+      if (changed) renderList();
       if (!result.pending) break;
       await delay(2000);
       if (sequence !== titleSyncSequence) return;
@@ -4195,6 +4195,33 @@ function originalTitleOf(entry) {
   return translated && /[\u3400-\u9fff]/.test(translated) && translated !== title ? title : '';
 }
 
+function captureEntryListPosition(list, selectedId) {
+  if (!list.clientHeight) return null;
+  const bounds = list.getBoundingClientRect();
+  const focused = document.activeElement;
+  const focusedId = focused?.matches('.entry-card') && focused.parentElement === list ? focused.dataset.id : null;
+  const visible = [];
+  for (const card of list.querySelectorAll(':scope > .entry-card')) {
+    const rect = card.getBoundingClientRect();
+    if (rect.bottom <= bounds.top) continue;
+    if (rect.top >= bounds.bottom) break;
+    const anchor = { id: card.dataset.id, offset: rect.top - bounds.top };
+    if (anchor.id === selectedId) visible.unshift(anchor);
+    else visible.push(anchor);
+  }
+  return { visible, focusedId, scrollTop: list.scrollTop };
+}
+
+function restoreEntryListPosition(list, position) {
+  if (!position) return;
+  const cards = new Map([...list.querySelectorAll(':scope > .entry-card')].map(card => [card.dataset.id, card]));
+  const anchor = position.visible.find(item => cards.has(item.id));
+  list.scrollTop = anchor
+    ? list.scrollTop + cards.get(anchor.id).getBoundingClientRect().top - list.getBoundingClientRect().top - anchor.offset
+    : position.scrollTop;
+  cards.get(position.focusedId)?.focus({ preventScroll: true });
+}
+
 function renderList() {
   $('#app').classList.toggle('view-assets', state.view === 'assets');
   $('#app').classList.toggle('view-contributors', state.view === 'contributors');
@@ -4202,15 +4229,21 @@ function renderList() {
   renderListScopeBar();
   renderEntryPaneTabs();
   const scopeEntries = visibleEntries();
-  $('#list-scope-count').textContent = `${scopeEntries.length} 篇 · ${scopeEntries.filter(entry => !state.read.has(entry.id)).length} 未读`;
+  const unreadCount = scopeEntries.filter(entry => !state.read.has(entry.id)).length;
+  const scopeCount = state.view === 'unread' ? unreadCount : scopeEntries.length;
+  $('#list-scope-count').textContent = `${scopeCount} 篇 · ${unreadCount} 未读`;
   $('#list-context-row').classList.toggle('hidden', state.view === 'contributors');
   $('#mark-read-btn').classList.toggle('hidden', state.view === 'contributors' || (isHomeScope() && state.homeTab === 'assets'));
   if (state.view === 'contributors') {
     renderContributorDirectory();
     return;
   }
-  const list = visibleEntries();
+  const list = scopeEntries;
   const el = $('#entry-list');
+  const scope = entryListScopeKey();
+  const sameScope = el.dataset.renderScope === scope;
+  const position = sameScope ? captureEntryListPosition(el, state.activeEntry?.id) : null;
+  el.dataset.renderScope = scope;
   el.innerHTML = '';
   el.classList.remove('home-asset-activity-list');
   renderAssetActivityStrip();
@@ -4360,6 +4393,7 @@ function renderList() {
     frag.appendChild(earlier);
   }
   el.appendChild(frag);
+  restoreEntryListPosition(el, position);
   observeListSentinel(el);
 }
 
@@ -8953,10 +8987,11 @@ async function reload({ keepReader = false, clearUrl = true } = {}) {
     // 若已有更新的 reload 在途，updating 状态交给它收尾，避免提前清除
     if (listUpdating && reloadSeq === listReloadSeq) setEntryListUpdating(false);
   }
+  const changedScope = $('#entry-list').dataset.renderScope !== entryListScopeKey();
   updateListTitle();
   renderList();
   renderSidebar();
-  if (listUpdating) restoreEntryListScroll();
+  if (listUpdating && changedScope) restoreEntryListScroll();
   if (!keepReader) {
     setWorkspacePage('');
     state.activeEntry = null;
