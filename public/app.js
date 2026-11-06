@@ -4481,8 +4481,91 @@ function newEntryCount(beforeEntries = [], afterEntries = []) {
 }
 
 /* ---------- Reader ---------- */
+function readerYoutubeId(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !['www.youtube.com', 'youtube.com', 'www.youtube-nocookie.com', 'youtube-nocookie.com'].includes(url.hostname)) return '';
+    return /^\/embed\/([\w-]{11})$/.exec(url.pathname)?.[1] || '';
+  } catch { return ''; }
+}
+
+function pauseReaderMedia(root = $('#reader')) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('video,audio').forEach(media => media.pause());
+  root.querySelectorAll('[data-reader-youtube]').forEach(container => {
+    container.querySelector('iframe')?.remove();
+    const button = container.querySelector('button');
+    if (button) button.hidden = false;
+  });
+}
+
+function mountReaderMedia(root) {
+  if (!root?.querySelectorAll) return;
+  root.querySelectorAll('video,audio').forEach(media => {
+    media.controls = true;
+    media.preload = 'none';
+    media.removeAttribute('autoplay');
+    media.style.maxWidth = '100%';
+    const url = media.getAttribute('src') || media.querySelector('source')?.getAttribute('src');
+    if (!url || media.dataset.readerMediaBound) return;
+    media.dataset.readerMediaBound = 'true';
+    const fallback = document.createElement('a');
+    fallback.href = url;
+    fallback.target = '_blank';
+    fallback.rel = 'noopener noreferrer';
+    fallback.textContent = media.tagName === 'AUDIO' ? '打开音频原文件' : '打开视频原文件';
+    const line = document.createElement('p');
+    line.append(fallback);
+    media.after(line);
+    media.addEventListener('error', () => { fallback.textContent = '媒体暂时无法播放，打开原文件'; });
+  });
+  root.querySelectorAll('[data-reader-youtube]').forEach(container => {
+    const id = container.dataset.readerYoutube;
+    if (!/^[\w-]{11}$/.test(id) || container.querySelector('button')) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '加载 YouTube 视频';
+    button.addEventListener('click', () => {
+      const frame = document.createElement('iframe');
+      frame.src = `https://www.youtube-nocookie.com/embed/${id}`;
+      frame.title = 'YouTube 视频播放器';
+      frame.allow = 'encrypted-media; picture-in-picture; fullscreen';
+      frame.allowFullscreen = true;
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      frame.style.cssText = 'width:100%;aspect-ratio:16/9;border:0;display:block';
+      container.prepend(frame);
+      button.hidden = true;
+    });
+    container.prepend(button);
+  });
+}
+
 function sanitize(html, { prioritizeFirstImage = false } = {}) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Preserve only a verified YouTube embed as an inert, click-to-load placeholder.
+  doc.querySelectorAll('iframe').forEach(frame => {
+    const id = readerYoutubeId(frame.getAttribute('src'));
+    if (!id) { frame.remove(); return; }
+    const placeholder = doc.createElement('div');
+    placeholder.dataset.readerYoutube = id;
+    const link = doc.createElement('a');
+    link.href = `https://www.youtube.com/watch?v=${id}`;
+    link.textContent = '在 YouTube 打开';
+    placeholder.append(link);
+    frame.replaceWith(placeholder);
+  });
+  doc.querySelectorAll('video,audio').forEach(media => {
+    media.setAttribute('controls', '');
+    media.setAttribute('preload', 'none');
+    media.setAttribute('playsinline', '');
+    media.removeAttribute('autoplay');
+  });
+  doc.querySelectorAll('video,audio,source,track').forEach(media => {
+    for (const attr of ['src', 'poster']) {
+      const value = media.getAttribute(attr);
+      if (value && !/^https?:\/\//i.test(value)) media.removeAttribute(attr);
+    }
+  });
   doc.querySelectorAll('script,style,form,iframe,object,embed,button,input,select,textarea,svg,canvas').forEach(n => n.remove());
   doc.querySelectorAll('.pencraft,.pc-reset,.icon-container,.image-link-expand,.view-image,[class*="image-link"],[class*="view-image"]').forEach(n => {
     if (!n.querySelector('img') && !n.textContent.replace(/\s+/g, '').trim()) n.remove();
@@ -5647,7 +5730,9 @@ function renderReaderToc(root = $('#reader-content')) {
 
 function renderOriginalContent(entry, content) {
   const fallback = entry && entry.summary ? `<p>${escapeHtml(entry.summary)}</p>` : '<p>（无内容，请打开原文）</p>';
+  pauseReaderMedia($('#reader-content'));
   $('#reader-content').innerHTML = sanitize(content || fallback, { prioritizeFirstImage: true });
+  mountReaderMedia($('#reader-content'));
   $$('#reader-content a').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
   renderReaderToc($('#reader-content'));
   updateReaderLanguageProfile();
@@ -5763,6 +5848,7 @@ function openArticleLinkInWindow() {
 }
 
 function setReaderTab(tab, { syncUrl = true, replaceUrl = true } = {}) {
+  if (state.readerTab !== normalizeReaderTab(tab)) pauseReaderMedia();
   const next = normalizeReaderTab(tab);
   state.readerTab = next;
   $$('.reader-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === next));
@@ -6120,6 +6206,7 @@ function renderRewrite(rewrite, { status = rewrite?.body?.trim() ? 'ready' : 'no
   updateRewriteUiLabels();
   renderReaderStatsUi();
   const content = $('#rewrite-content');
+  pauseReaderMedia(content);
   const empty = $('#rewrite-empty');
   const copy = $('#rewrite-copy');
   const action = $('#reader-rewrite');
@@ -6159,7 +6246,8 @@ function renderRewrite(rewrite, { status = rewrite?.body?.trim() ? 'ready' : 'no
     meta.classList.add('hidden');
   }
   renderAssetHelpfulButton('rewrite', state.rewrite);
-  content.innerHTML = renderMarkdownLite(rewrite.body);
+  content.innerHTML = rewrite.bodyHtml ? sanitize(rewrite.bodyHtml) : renderMarkdownLite(rewrite.body);
+  mountReaderMedia(content);
   $$('#rewrite-content a').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
   updateReaderLanguageProfile();
   applyTextAnnotations();
@@ -8666,6 +8754,7 @@ function loadEntryExtrasAfterReading(entry, readingTask, openId) {
 }
 
 async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentId = '', annotationId = '', chatMessageId = '', updateUrl = true, replaceUrl = false, readingPayload = null } = {}) {
+  pauseReaderMedia();
   const openId = state.articleOpenId = (state.articleOpenId || 0) + 1;
   clearTimeout(state.rewritePollTimer);
   setPodcastMode(false);
@@ -8817,6 +8906,7 @@ async function openEntry(e, { tab = null, focus = null, aiAssetId = '', commentI
 }
 
 function closeReaderFromRoute({ rerenderList = true } = {}) {
+  pauseReaderMedia();
   clearTimeout(state.rewritePollTimer);
   setWorkspacePage('');
   state.activeEntry = null;
