@@ -35,6 +35,7 @@
     "undici": "^7.28.0"
   },
   "devDependencies": {
+    "jsdom": "26.1.0",
     "lucide": "^1.22.0"
   },
   "engines": {

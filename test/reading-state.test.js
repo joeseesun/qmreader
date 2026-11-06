@@ -43,6 +43,7 @@ function reader() {
     updateRewriteUiLabels() {}, renderReaderStatsUi() {}, renderAssetHelpfulButton() {},
     updateReaderLanguageProfile() {}, applyTextAnnotations() {}, renderReaderAssetSummary() {}, settlePendingAssetJump() {},
     updateEntryAssets() {}, entryAssetHelpfulPatch: () => ({}), renderList() {},
+    pauseReaderMedia() {}, mountReaderMedia() {}, sanitize: html => html,
     renderMarkdownLite: text => `<p>${text}</p>`, rewriteMetaText: () => '',
     maybeGenerateRewriteAfterLoad() {}, setReaderTab: tab => { state.readerTab = tab; },
     requireAuth: () => true, translationAiConfig: () => ({}), rewriteAiConfig: () => ({}), toast() {},
@@ -209,4 +210,12 @@ test('a transient startup list error retries once without reloading the page', a
   assert.equal(await sandbox.loadEntries({ retryOnStartup: true }), true);
   assert.equal(attempts, 2);
   assert.equal(sandbox.state.entries[0], entry);
+});
+
+
+test('publisher rewrite renders its rich HTML while retaining Markdown for copying', () => {
+  const r = reader();
+  r.renderRewrite({ body: '可复制的 Markdown', bodyHtml: '<p>乔木改写</p><video controls src="https://example.com/video.mp4"></video>' });
+  assert.match(r.$('#rewrite-content').innerHTML, /<video controls/);
+  assert.equal(r.state.rewrite.body, '可复制的 Markdown');
 });
