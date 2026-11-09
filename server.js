@@ -2197,7 +2197,7 @@ function requireAdmin(req, res, next) {
   res.status(403).json({ error: '需要管理员权限' });
 }
 
-require('./lib/qiaomu-clipper').mountClipper(app, { store, rateLimit: clipperHourlyRateLimit, dailyRateLimit: clipperDailyRateLimit, globalRateLimit: clipperGlobalRateLimit, onAccepted: entry => entry.titleZh ? null : translateSubmittedTitle(entry) });
+require('./lib/qiaomu-clipper').mountClipper(app, { store, rewriteEntry: entry => wechatImages.rewriteEntry(entry), rateLimit: clipperHourlyRateLimit, dailyRateLimit: clipperDailyRateLimit, globalRateLimit: clipperGlobalRateLimit, onAccepted: entry => entry.titleZh ? null : translateSubmittedTitle(entry) });
 
 mountPodcastNotes(app, requireAdmin, fetcher);
 mountYoutubeNotes(app, requireAdmin, fetcher);
