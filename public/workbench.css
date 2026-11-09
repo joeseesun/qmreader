@@ -1354,9 +1354,8 @@ html { scrollbar-width: thin; scrollbar-color: var(--wb-thumb) transparent; }
   font-size: 13px;
 }
 #app #entry-pane #search:focus { box-shadow: 0 0 0 1px var(--border-strong); }
-#app #entry-pane #mark-read-btn { display: none; }
 #app #list-scope-bar { margin: 2px 16px 0; }
-#app .wb-list-meta { margin: 0; padding: 14px 16px 6px; border: 0; }
+#app .wb-list-meta { align-items: center; margin: 0; padding: 6px 16px 0; border: 0; }
 #app .wb-list-meta span { color: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 #app #entry-pane .entry-list { padding: 0 8px 16px; }

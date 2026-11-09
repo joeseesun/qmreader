@@ -2197,7 +2197,7 @@ function requireAdmin(req, res, next) {
   res.status(403).json({ error: '需要管理员权限' });
 }
 
-require('./lib/qiaomu-clipper').mountClipper(app, { store, rateLimit: clipperHourlyRateLimit, dailyRateLimit: clipperDailyRateLimit, globalRateLimit: clipperGlobalRateLimit, onAccepted: entry => entry.titleZh ? null : translateSubmittedTitle(entry) });
+require('./lib/qiaomu-clipper').mountClipper(app, { store, rewriteEntry: entry => wechatImages.rewriteEntry(entry), rateLimit: clipperHourlyRateLimit, dailyRateLimit: clipperDailyRateLimit, globalRateLimit: clipperGlobalRateLimit, onAccepted: entry => entry.titleZh ? null : translateSubmittedTitle(entry) });
 
 mountPodcastNotes(app, requireAdmin, fetcher);
 mountYoutubeNotes(app, requireAdmin, fetcher);
@@ -3414,13 +3414,14 @@ app.post('/api/me/entry-state', requireLogin, (req, res) => {
 });
 
 app.post('/api/me/entry-states/read', requireLogin, (req, res) => {
-  const requested = Array.isArray(req.body && req.body.entryIds) ? req.body.entryIds : [];
-  const entryIds = requested
-    .map(id => fetcher.getEntryById(id))
-    .filter(Boolean)
-    .map(entry => entry.id);
+  const { entryIds, undoMarkedAt } = req.body || {};
+  if (!Array.isArray(entryIds) || entryIds.length > 1000 ||
+      (undoMarkedAt !== undefined && (!Number.isSafeInteger(undoMarkedAt) || undoMarkedAt <= 0))) {
+    return res.status(400).json({ error: 'invalid entry state batch' });
+  }
   try {
-    res.json({ states: store.markEntriesRead(req.user.id, entryIds) });
+    const existing = fetcher.getEntriesByIds(entryIds, req.user).map(entry => entry.id);
+    res.json(store.markEntriesRead(req.user.id, existing, { undoMarkedAt }));
   } catch (e) {
     sendError(res, e, 'entry states update failed');
   }

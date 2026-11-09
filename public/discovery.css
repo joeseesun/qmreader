@@ -18,5 +18,23 @@
 #list-context-row:has(#source-refresh-status:not(.hidden)) .list-scope-count { display: none; }
 #list-context-row #source-refresh-btn:focus-visible { outline: 1px solid var(--text-2); outline-offset: 1px; }
 #list-context-row #source-refresh-btn:disabled { opacity: .55; cursor: wait; }
+#mark-read-btn { flex: none; width: 32px; height: 32px; padding: 7px; }
+#mark-read-btn[aria-disabled="true"] { opacity: .45; cursor: default; background: transparent; }
+#mark-read-btn:focus-visible { outline: 1px solid var(--text-2); outline-offset: 1px; }
+#mark-read-feedback:not(.hidden) {
+  display: flex; align-items: center; gap: 12px;
+  width: max-content; max-width: calc(100vw - 32px); padding: 5px 8px 5px 14px;
+  bottom: calc(26px + env(safe-area-inset-bottom));
+}
+#mark-read-feedback .ghost-btn { flex: none; }
+body:has(#toast:not(.hidden)) #mark-read-feedback { bottom: calc(82px + env(safe-area-inset-bottom)); }
+@media (max-width: 760px), (pointer: coarse) {
+  #mark-read-btn { width: 44px; height: 44px; }
+}
+@media (max-width: 760px) {
+  #app:not(.reading) #mark-read-feedback:not(.hidden) {
+    bottom: calc(var(--qm-tabbar-h) + var(--qm-safe-bottom) + 18px);
+  }
+}
 
 .public-summary:not([open]) { text-align: center; }
