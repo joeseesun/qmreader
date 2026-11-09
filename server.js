@@ -3414,13 +3414,14 @@ app.post('/api/me/entry-state', requireLogin, (req, res) => {
 });
 
 app.post('/api/me/entry-states/read', requireLogin, (req, res) => {
-  const requested = Array.isArray(req.body && req.body.entryIds) ? req.body.entryIds : [];
-  const entryIds = requested
-    .map(id => fetcher.getEntryById(id))
-    .filter(Boolean)
-    .map(entry => entry.id);
+  const { entryIds, undoMarkedAt } = req.body || {};
+  if (!Array.isArray(entryIds) || entryIds.length > 1000 ||
+      (undoMarkedAt !== undefined && (!Number.isSafeInteger(undoMarkedAt) || undoMarkedAt <= 0))) {
+    return res.status(400).json({ error: 'invalid entry state batch' });
+  }
   try {
-    res.json({ states: store.markEntriesRead(req.user.id, entryIds) });
+    const existing = fetcher.getEntriesByIds(entryIds, req.user).map(entry => entry.id);
+    res.json(store.markEntriesRead(req.user.id, existing, { undoMarkedAt }));
   } catch (e) {
     sendError(res, e, 'entry states update failed');
   }

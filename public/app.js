@@ -1868,6 +1868,8 @@ let entriesRequestSeq = 0;
 let entriesAbortController = null;
 let listReloadSeq = 0;
 const listScrollPositions = new Map();
+let markReadPending = false;
+let markReadFeedbackTimer;
 
 function entryListWindowed() {
   return !ENTRY_LIST_FIXED_VIEWS.includes(state.view);
@@ -1942,6 +1944,7 @@ function setEntryListUpdating(updating) {
   if (!el) return;
   el.classList.toggle('entry-list-updating', Boolean(updating));
   el.setAttribute('aria-busy', updating ? 'true' : 'false');
+  updateMarkReadButton();
 }
 
 function restoreEntryListScroll() {
@@ -2198,6 +2201,7 @@ async function loadMe() {
   } finally {
     state.authReady = true;
     renderAuthState();
+    updateMarkReadButton();
   }
 }
 
@@ -3169,7 +3173,7 @@ function renderListScopeBar() {
   });
 }
 
-function selectListScope(scope = 'latest') {
+function selectListScope(scope = 'latest', { keepReader = false } = {}) {
   const next = ['latest', 'hot', 'unread'].includes(scope) ? scope : 'latest';
   if (next === 'latest') {
     state.view = 'all';
@@ -3188,7 +3192,7 @@ function selectListScope(scope = 'latest') {
     reload({ clearUrl: false });
     return;
   }
-  reload();
+  reload({ keepReader, clearUrl: !keepReader });
 }
 
 function assetActivityItemHtml({ entry, type, labels, preview, previewMeta }, { large = false } = {}) {
@@ -4233,7 +4237,9 @@ function renderList() {
   const scopeCount = state.view === 'unread' ? unreadCount : scopeEntries.length;
   $('#list-scope-count').textContent = `${scopeCount} 篇 · ${unreadCount} 未读`;
   $('#list-context-row').classList.toggle('hidden', state.view === 'contributors');
-  $('#mark-read-btn').classList.toggle('hidden', state.view === 'contributors' || (isHomeScope() && state.homeTab === 'assets'));
+  const markButton = $('#mark-read-btn');
+  markButton.classList.toggle('hidden', ['contributors', 'assets', 'history'].includes(state.view) || (isHomeScope() && state.homeTab === 'assets'));
+  updateMarkReadButton(unreadCount);
   if (state.view === 'contributors') {
     renderContributorDirectory();
     return;
@@ -4268,9 +4274,20 @@ function renderList() {
       : state.view === 'starred'
       ? '还没有收藏<br/>好文章值得被留下，读到时按 S'
       : state.view === 'unread'
-      ? 'Inbox Zero，达成<br/>全部读完了。去窗外看看远处吧'
+      ? '当前列表已全部读完'
       : '这里还安静着<br/>换一个频道看看，或稍后再来';
     el.innerHTML = `<div class="list-empty">${text}</div>`;
+    if (state.view === 'unread') {
+      const next = document.createElement('button');
+      next.type = 'button';
+      next.className = 'ghost-btn';
+      next.disabled = state.entriesLoadingMore;
+      next.textContent = state.entryListHasMore
+        ? (state.entriesLoadingMore ? '正在加载…' : '加载更早文章')
+        : '查看最新';
+      next.onclick = () => state.entryListHasMore ? loadMoreEntries() : selectListScope('latest', { keepReader: true });
+      el.firstElementChild.append(document.createElement('br'), next);
+    }
     return;
   }
   const visibleList = list.slice(0, state.entryRenderLimit);
@@ -10359,24 +10376,116 @@ $('#reader-pane').addEventListener('click', (e) => {
 });
 $('#article-link-open').onclick = openArticleLinkInWindow;
 $('#article-link-submit').onclick = submitArticleLinkToSite;
-$('#mark-read-btn').onclick = async () => {
-  const ids = visibleEntries().map(e => e.id);
-  ids.forEach(id => state.read.add(id));
-  persist();
-  renderEntryStateUi();
-  if (state.me && ids.length) {
+function updateMarkReadButton(unreadCount = visibleEntries().filter(entry => !state.read.has(entry.id)).length) {
+  const button = $('#mark-read-btn');
+  const updating = !state.authReady || $('#entry-list').getAttribute('aria-busy') === 'true';
+  const label = markReadPending ? '正在更新已读状态…'
+    : updating ? '正在更新列表…'
+    : unreadCount ? `将当前列表已加载的 ${unreadCount} 篇未读标为已读`
+    : '当前列表没有未读文章';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('aria-disabled', String(markReadPending || updating || !unreadCount));
+}
+
+function syncListRead(entryIds, undoMarkedAt) {
+  return api('/api/me/entry-states/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entryIds, undoMarkedAt }),
+  });
+}
+
+function hideMarkReadFeedback() {
+  clearTimeout(markReadFeedbackTimer);
+  $('#mark-read-feedback').classList.add('hidden');
+  $('#mark-read-undo').onclick = null;
+}
+
+function scheduleMarkReadFeedbackDismiss() {
+  clearTimeout(markReadFeedbackTimer);
+  const feedback = $('#mark-read-feedback');
+  if (feedback.matches(':hover, :focus-within')) return;
+  markReadFeedbackTimer = setTimeout(hideMarkReadFeedback, 8000);
+}
+
+function showMarkReadUndo(batch, message) {
+  const feedback = $('#mark-read-feedback');
+  const undo = $('#mark-read-undo');
+  feedback.classList.remove('hidden');
+  $('#mark-read-message').textContent = message;
+  undo.onclick = async () => {
+    if (markReadPending) return;
+    if (state.authRevision !== batch.authRevision) return hideMarkReadFeedback();
+    const ids = batch.ids.filter(id => state.read.has(id) && state.activeEntry?.id !== id &&
+      state.history.get(id) === batch.history.get(id));
+    markReadPending = true;
+    undo.setAttribute('aria-disabled', 'true');
+    updateMarkReadButton();
+    clearTimeout(markReadFeedbackTimer);
     try {
-      await api('/api/me/entry-states/read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entryIds: ids }),
-      });
-    } catch (err) {
-      toast('同步已读失败: ' + err.message, 4000);
-      return;
+      let restored = ids;
+      if (state.me && ids.length) {
+        const data = await syncListRead(ids, batch.markedAt);
+        const serverRead = new Set(data.states.read);
+        restored = ids.filter(id => !serverRead.has(id));
+      }
+      if (state.authRevision !== batch.authRevision) return hideMarkReadFeedback();
+      restored = restored.filter(id => state.activeEntry?.id !== id && state.history.get(id) === batch.history.get(id));
+      restored.forEach(id => state.read.delete(id));
+      persist();
+      if (document.activeElement === undo && $('#mark-read-btn').offsetWidth) $('#mark-read-btn').focus();
+      hideMarkReadFeedback();
+      renderEntryStateUi();
+      toast(restored.length ? `已恢复 ${restored.length} 篇未读` : '没有可恢复的未读文章');
+    } catch {
+      $('#mark-read-message').textContent = '撤销失败，请重试';
+      scheduleMarkReadFeedbackDismiss();
+    } finally {
+      markReadPending = false;
+      undo.removeAttribute('aria-disabled');
+      updateMarkReadButton();
     }
+  };
+  scheduleMarkReadFeedbackDismiss();
+}
+
+const markReadFeedback = $('#mark-read-feedback');
+markReadFeedback.addEventListener('pointerenter', () => clearTimeout(markReadFeedbackTimer));
+markReadFeedback.addEventListener('focusin', () => clearTimeout(markReadFeedbackTimer));
+markReadFeedback.addEventListener('pointerleave', () => { if (!markReadPending) scheduleMarkReadFeedbackDismiss(); });
+markReadFeedback.addEventListener('focusout', () => { if (!markReadPending) queueMicrotask(scheduleMarkReadFeedbackDismiss); });
+
+$('#mark-read-btn').onclick = async () => {
+  const button = $('#mark-read-btn');
+  if (button.getAttribute('aria-disabled') === 'true' ||
+      $('#entry-list').dataset.renderScope !== entryListScopeKey()) return;
+  const ids = visibleEntries().filter(entry => !state.read.has(entry.id)).map(entry => entry.id);
+  if (!ids.length) return;
+  const batch = { ids, authRevision: state.authRevision, history: new Map(ids.map(id => [id, state.history.get(id)])) };
+  markReadPending = true;
+  updateMarkReadButton(ids.length);
+  try {
+    let readIds = ids;
+    if (state.me) {
+      const data = await syncListRead(ids);
+      batch.ids = data.changedIds;
+      batch.markedAt = data.markedAt;
+      const serverRead = new Set(data.states.read);
+      readIds = ids.filter(id => serverRead.has(id));
+    }
+    if (state.authRevision !== batch.authRevision) return;
+    readIds.forEach(id => state.read.add(id));
+    persist();
+    renderEntryStateUi();
+    if (batch.ids.length) showMarkReadUndo(batch, `已将 ${batch.ids.length} 篇标为已读`);
+    else toast(readIds.length ? '这些文章已标为已读' : '当前文章已不可用，请刷新列表');
+  } catch {
+    if (state.authRevision === batch.authRevision) toast('标为已读失败，请重试', 4000);
+  } finally {
+    markReadPending = false;
+    updateMarkReadButton();
   }
-  toast('已全部标为已读');
 };
 $('#reader-star').onclick = () => {
   const e = state.activeEntry;

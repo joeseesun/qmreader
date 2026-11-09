@@ -143,7 +143,6 @@
         <div class="pane-title" id="list-title">全部</div>
         <div class="pane-actions">
           <input id="search" type="search" placeholder="搜索文章…" aria-label="搜索文章" />
-          <button id="mark-read-btn" class="icon-btn mark-read-labeled" title="把当前列表全部标为已读" aria-label="全部标为已读"><span data-qm-icon="check-check"></span><span class="button-label">全部已读</span></button>
         </div>
       </header>
       <div id="list-scope-bar" class="list-scope-bar" role="tablist" aria-label="文章列表模式">
@@ -154,8 +153,13 @@
       <div id="list-context-row" class="list-context-row">
         <strong id="list-scope-title">全部</strong>
         <span id="list-scope-count" class="list-scope-count"></span>
-          <button id="source-refresh-btn" class="icon-btn source-refresh-btn hidden" type="button" title="检查当前信息源更新" aria-label="检查当前信息源更新"><span data-qm-icon="refresh-cw"></span></button>
-          <span id="source-refresh-status" class="source-refresh-status hidden" role="status" aria-live="polite"></span>
+        <button id="source-refresh-btn" class="icon-btn source-refresh-btn hidden" type="button" title="检查当前信息源更新" aria-label="检查当前信息源更新"><span data-qm-icon="refresh-cw"></span></button>
+        <span id="source-refresh-status" class="source-refresh-status hidden" role="status" aria-live="polite"></span>
+        <button id="mark-read-btn" class="icon-btn" type="button" title="将当前列表标为已读" aria-label="将当前列表标为已读" aria-disabled="true"><span data-qm-icon="check-check" aria-hidden="true"></span></button>
+      </div>
+      <div id="mark-read-feedback" class="toast hidden">
+        <span id="mark-read-message" role="status"></span>
+        <button id="mark-read-undo" class="ghost-btn" type="button">撤销</button>
       </div>
       <div id="entry-pane-tabs" class="entry-pane-tabs hidden" role="tablist" aria-label="全部视图">
         <button class="entry-pane-tab active" type="button" data-home-tab="entries">文章列表 <span id="home-entry-count">0</span></button>

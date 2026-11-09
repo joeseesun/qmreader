@@ -55,6 +55,24 @@ test('real public HTTP serves first list, anonymous article and distinct minimal
   assert.match(reading.entry.content, /Public body/);
   const admin = store.createUser({ email: 'reading-qa@example.com', password: 'temporary-fixture-password', displayName: 'Reading QA', role: 'admin' });
   const session = store.createSession(admin.id);
+  const markRead = body => fetch(base + '/api/me/entry-states/read', {
+    method: 'POST',
+    headers: { Cookie: `qm_session=${session.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async response => {
+    assert.equal(response.status, 200);
+    return response.json();
+  });
+  store.setUserEntryState(admin.id, 'public-3', { read: true });
+  store.setUserEntryState(admin.id, 'public-4', { starred: true });
+  const marked = await markRead({ entryIds: ['public-3', 'public-4', 'public-5', 'public-5', 'public-1'] });
+  assert.deepEqual(marked.changedIds, ['public-4', 'public-5']);
+  store.setUserEntryState(admin.id, 'public-5', { read: true, viewed: true });
+  const undone = await markRead({ entryIds: marked.changedIds, undoMarkedAt: marked.markedAt });
+  assert.deepEqual(undone.changedIds, ['public-4']);
+  assert.deepEqual(undone.states.read.sort(), ['public-3', 'public-5']);
+  assert.deepEqual(undone.states.starred, ['public-4']);
+  assert.deepEqual((await markRead({ entryIds: marked.changedIds, undoMarkedAt: marked.markedAt })).changedIds, []);
   const authenticated = await fetch(linked.url, { headers: { Cookie: `qm_session=${session.token}` } });
   assert.match(authenticated.headers.get('cache-control'), /private, no-store/);
   const authenticatedHtml = await authenticated.text();

@@ -12,7 +12,7 @@ function harness(api) {
     normalizeDefaultReaderTab: x => x || 'rewrite',
     setAccountMenuOpen() {}, closeChangePasswordModal() {}, avatarHtml: () => '', escapeHtml: String,
     isAdmin: () => false, renderAdminEntryControls() {}, renderSidebarAiSettings() {}, updateAgentControls() {},
-    loadUserEntryStates: async () => {}, loadAiProfilesForScope() {}, renderEntryStateUi() {}, renderComments() {}, renderAgent() {}, renderAiSettings() {},
+    loadUserEntryStates: async () => {}, loadAiProfilesForScope() {}, renderEntryStateUi() {}, renderComments() {}, renderAgent() {}, renderAiSettings() {}, updateMarkReadButton() {},
   });
   vm.runInContext(fn('setCurrentUser', '\nfunction activeSourceForEntry') + fn('renderAuthState', '\nfunction setAccountMenuOpen') + fn('loadMe', '\n/* ---------- Sidebar'), ctx);
   return { ctx, nodes, state };
