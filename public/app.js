@@ -4234,8 +4234,9 @@ function renderList() {
   renderEntryPaneTabs();
   const scopeEntries = visibleEntries();
   const unreadCount = scopeEntries.filter(entry => !state.read.has(entry.id)).length;
-  const scopeCount = state.view === 'unread' ? unreadCount : scopeEntries.length;
-  $('#list-scope-count').textContent = `${scopeCount} 篇 · ${unreadCount} 未读`;
+  $('#list-scope-count').textContent = state.view === 'unread'
+    ? `${unreadCount} 篇未读`
+    : `${scopeEntries.length} 篇 · ${unreadCount} 未读`;
   $('#list-context-row').classList.toggle('hidden', state.view === 'contributors');
   const markButton = $('#mark-read-btn');
   markButton.classList.toggle('hidden', ['contributors', 'assets', 'history'].includes(state.view) || (isHomeScope() && state.homeTab === 'assets'));
@@ -4269,12 +4270,12 @@ function renderList() {
       ? '还没有浏览记录<br/>打开几篇文章后会出现在这里'
       : state.view === 'hot'
       ? '还没有足够反馈<br/>提交链接、点赞或收藏后会逐步形成热门列表'
+      : state.view === 'unread'
+      ? (state.entryListHasMore ? '当前已加载的文章均已读' : '当前列表已全部读完')
       : state.q
       ? `没有找到“${escapeHtml(state.q)}”<br/>也许它还没被写出来。换个关键词试试`
       : state.view === 'starred'
       ? '还没有收藏<br/>好文章值得被留下，读到时按 S'
-      : state.view === 'unread'
-      ? '当前列表已全部读完'
       : '这里还安静着<br/>换一个频道看看，或稍后再来';
     el.innerHTML = `<div class="list-empty">${text}</div>`;
     if (state.view === 'unread') {

@@ -31,5 +31,10 @@ body:has(#toast:not(.hidden)) #mark-read-feedback { bottom: calc(82px + env(safe
 @media (max-width: 760px), (pointer: coarse) {
   #mark-read-btn { width: 44px; height: 44px; }
 }
+@media (max-width: 760px) {
+  #app:not(.reading) #mark-read-feedback:not(.hidden) {
+    bottom: calc(var(--qm-tabbar-h) + var(--qm-safe-bottom) + 18px);
+  }
+}
 
 .public-summary:not([open]) { text-align: center; }
