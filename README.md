@@ -97,6 +97,10 @@ HOST=127.0.0.1 PORT=3000 npm start
 
 首次启动会按 `STARTUP_REFRESH_DELAY_MS` 决定是否触发全量刷新。运行数据写入 `data/`，包括 RSS 缓存、SQLite 数据库、截图和日志；这些文件默认被 `.gitignore` 排除。
 
+## 一键部署
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/QMReader/)
+
 ## 配置
 
 `.env.example` 只给变量名和公开默认值，不包含真实密钥。常用变量：
@@ -393,6 +397,10 @@ To run locally only:
 ```bash
 HOST=127.0.0.1 PORT=3000 npm start
 ```
+
+## One-Click Deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/QMReader/)
 
 ## Configuration
 
