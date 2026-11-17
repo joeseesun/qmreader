@@ -6751,7 +6751,10 @@ function selectionAnnotationContext() {
   const version = currentAnnotationVersion(surface);
   const rect = range.getBoundingClientRect();
   if (!rect || (!rect.width && !rect.height)) return null;
-  return { surface, quote, selectedText, prefix, suffix, assetId: version.assetId, contentHash: version.contentHash, rect };
+  const sourceId = String(state.activeEntry.sourceId || '');
+  const isTranscript = surface === 'original' && (sourceId.startsWith('podscribe-') || ['allin', 'joerogan'].includes(sourceId));
+  const timestamp = isTranscript ? startEl?.closest('p')?.textContent.match(/^\s*[[(]?(\d{1,2}:\d{2}(?::\d{2})?)(?=\s|[\])])/)?.[1] : '';
+  return { surface, quote, selectedText, prefix, suffix, assetId: version.assetId, contentHash: version.contentHash, rect, timestamp };
 }
 
 function hideAnnotationPopover() {
@@ -6766,6 +6769,7 @@ function showAnnotationPopover(context) {
     surface: context.surface,
     quote: context.quote,
     selectedText: context.selectedText || context.quote,
+    timestamp: context.timestamp,
     prefix: context.prefix,
     suffix: context.suffix,
     assetId: context.assetId || '',
@@ -6797,8 +6801,47 @@ async function copyAnnotationSelection() {
   }
 }
 
+async function openAnnotationPoster() {
+  const draft = state.annotationDraft;
+  const entry = state.activeEntry;
+  const text = String(draft?.selectedText || draft?.quote || '').trim();
+  if (!entry || !text) return;
+
+  const published = new Date(entry.published || '');
+  const ts = draft.timestamp;
+  const poster = {
+    text,
+    title: entry.title || '',
+    titleZh: entry.titleZh || '',
+    show: sourceNameForEntry(entry),
+    meta: [
+      Number.isFinite(published.getTime()) ? published.toLocaleDateString('zh-CN') : '',
+      ts ? `第 ${ts}` : '',
+    ].filter(Boolean).join(' · '),
+    url: readerUrlFor(entry, draft.surface, '', draft.assetId).href,
+    ts,
+    translate: state.me ? ({ quote, title }, signal) => api('/api/poster-translation', {
+      method: 'POST',
+      aiConfig: translationAiConfig(),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quote: quote.slice(0, 1800), title: title.slice(0, 300) }),
+      timeoutMs: 20000,
+      signal,
+    }) : null,
+  };
+
+  hideAnnotationPopover();
+  window.getSelection()?.removeAllRanges();
+  try {
+    const { openPosterDialog } = await import('/poster-dialog.js');
+    openPosterDialog(poster);
+  } catch {
+    toast('海报加载失败，请重试');
+  }
+}
+
 function maybeOpenAnnotationPopover() {
-  if ($('#annotation-popover')?.contains(document.activeElement)) return;
+  if ($('#poster-dialog').open || $('#annotation-popover')?.contains(document.activeElement)) return;
   const context = selectionAnnotationContext();
   if (context) showAnnotationPopover(context);
 }
@@ -10630,6 +10673,7 @@ document.addEventListener('selectionchange', () => {
   hideAnnotationPopover();
 });
 $('#annotation-popover-copy').onclick = copyAnnotationSelection;
+$('#annotation-popover-poster').onclick = openAnnotationPoster;
 $('#annotation-popover-send-ai').onclick = sendAnnotationDraftToAgent;
 $('#annotation-popover-submit').onclick = submitAnnotationDraft;
 $('#annotation-popover-input').onkeydown = (e) => {

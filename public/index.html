@@ -16,6 +16,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="QMReader" />
   <link rel="stylesheet" href="/discovery.css?v=1" />
+  <link rel="stylesheet" href="/poster.css" />
 
   <link rel="stylesheet" href="/styles.css?v=bilingual-20261031-20261027-admin-font1" />
   <meta name="description" content="精选中英文 RSS，AI 自动译成好读的中文，边读边问 AI 的阅读器。" />
@@ -430,6 +431,7 @@
             <button id="annotation-popover-submit" class="annotation-pill-btn" type="button"><span data-qm-icon="highlighter"></span>划线</button>
             <button id="annotation-popover-send-ai" class="annotation-pill-btn" type="button"><span data-qm-icon="sparkles"></span>问 AI</button>
             <button id="annotation-popover-copy" class="annotation-pill-btn annotation-popover-copy" type="button"><span data-qm-icon="copy"></span>复制</button>
+            <button id="annotation-popover-poster" class="annotation-pill-btn" type="button"><span data-qm-icon="image"></span>生成海报</button>
           </div>
         </div>
       </article>
@@ -851,17 +853,47 @@
     </div>
   </div>
 
+  <dialog id="poster-dialog" aria-labelledby="poster-title">
+    <header class="poster-head">
+      <h3 id="poster-title">分享海报</h3>
+      <button class="icon-btn" type="button" data-poster-close aria-label="关闭" autofocus><span data-qm-icon="x"></span></button>
+    </header>
+    <div class="poster-body">
+      <div class="poster-layout">
+        <div class="poster-pv">
+          <img class="hidden" alt="分享海报" />
+          <div class="poster-wait" role="status"><span data-qm-icon="loader-circle"></span><span>正在生成海报…</span></div>
+          <p class="poster-error hidden" role="alert">海报生成失败，请关闭后重试</p>
+          <span class="poster-busy hidden" role="status"><span data-qm-icon="loader-circle"></span>正在加载字体…</span>
+        </div>
+        <div class="poster-side">
+          <p class="poster-label">主题</p>
+          <div class="poster-themes"></div>
+          <p class="poster-label">字体</p>
+          <div class="poster-fonts"></div>
+          <p class="poster-font-help">开源字体第一次使用时联网下载，只取海报上用到的字。</p>
+        </div>
+      </div>
+      <footer class="poster-foot">
+        <span class="poster-notice" role="status"></span>
+        <button class="poster-btn ghost" type="button" data-poster-close><span data-qm-icon="x"></span>关闭</button>
+        <button class="poster-btn" type="button" id="poster-copy" disabled><span data-qm-icon="copy"></span>复制图片</button>
+        <button class="poster-btn primary" type="button" id="poster-save" disabled>保存图片</button>
+      </footer>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast hidden"></div>
 
   <script defer src="/purify.min.js?v=3.4.17"></script>
-  <script defer src="/lucide-icons.js?v=7"></script>
+  <script defer src="/lucide-icons.js?v=poster-1"></script>
   <script defer src="/request-json.js?v=full-deadline-20261028"></script>
   <script defer src="/provider-icons.js?v=1"></script>
   <script defer src="/ai-providers.js?v=20261028-aiset1"></script>
   <script defer src="/ai-settings.js?v=20261028-test1"></script>
   <script defer src="/ranking.js?v=1"></script>
   <script defer src="/pwa.js?v=1"></script>
-  <script defer src="/app.js?v=bilingual-20261031"></script>
+  <script defer src="/app.js?v=highlight-poster-1"></script>
   <script defer src="/podscribe.js?v=6"></script>
   <script defer src="/web-collection.js?v=1.0.0"></script>
   <script defer src="/workbench.js?v=20261028-key-guard"></script>
