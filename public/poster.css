@@ -1,0 +1,112 @@
+/* Poster dialog and controls ported from SubCast src/styles.css (baeb1ec). */
+#poster-dialog {
+  --poster-panel: var(--bg-1);
+  --poster-soft: var(--bg-2);
+  --poster-text: var(--text-0);
+  --poster-secondary: var(--text-1);
+  --poster-muted: var(--text-2);
+  --poster-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  box-sizing: border-box;
+  width: min(820px, calc(100vw - 32px));
+  height: min(720px, calc(100dvh - 48px));
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--poster-panel);
+  color: var(--poster-text);
+  box-shadow: 0 24px 60px rgba(0,0,0,.25);
+}
+#poster-dialog[open] { display: flex; flex-direction: column; }
+#poster-dialog::backdrop { background: rgba(0,0,0,.32); }
+.poster-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 8px 22px; }
+.poster-head h3 { margin: 0; font-size: 17px; }
+.poster-body { padding: 8px 22px 20px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.poster-foot { display: flex; align-items: center; justify-content: flex-end; flex: none; gap: 8px; margin-top: 16px; }
+.poster-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--poster-soft);
+  color: var(--poster-text);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background .12s;
+}
+.poster-btn:hover:not(:disabled) { background: var(--bg-3); }
+.poster-btn.primary { background: var(--poster-text); color: var(--poster-panel); }
+.poster-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--poster-text) 85%, var(--poster-panel)); }
+.poster-btn.ghost { background: transparent; color: var(--poster-secondary); }
+.poster-btn.ghost:hover { background: var(--poster-soft); }
+.poster-btn:disabled { opacity: .5; cursor: default; }
+.poster-btn .app-icon { width: 14px; height: 14px; }
+.poster-notice { flex: 1; font-size: 12px; color: var(--poster-secondary); }
+.poster-layout { display: grid; flex: 1; min-height: 0; grid-template: minmax(0, 1fr) / minmax(0, 1fr) 236px; gap: 18px; }
+.poster-pv { position: relative; min-height: 0; overflow: hidden; padding: 14px; border-radius: 12px; background: var(--poster-soft); }
+.poster-pv img {
+  position: absolute;
+  inset: 14px;
+  width: calc(100% - 28px);
+  height: calc(100% - 28px);
+  object-fit: contain;
+  filter: drop-shadow(0 8px 24px rgba(0,0,0,.14));
+}
+.poster-wait, .poster-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; }
+.poster-wait { color: var(--poster-muted); }
+.poster-error { color: var(--semantic-red); }
+.poster-wait .app-icon { width: 18px; height: 18px; }
+.poster-busy {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--poster-panel);
+  box-shadow: var(--poster-shadow);
+  font-size: 12px;
+  color: var(--poster-secondary);
+  white-space: nowrap;
+}
+.poster-busy .app-icon { width: 13px; height: 13px; }
+.poster-wait .app-icon, .poster-busy .app-icon { animation: poster-spin .9s linear infinite; }
+@keyframes poster-spin { to { transform: rotate(360deg); } }
+.poster-side { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: auto; padding: 2px; }
+.poster-label { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--poster-muted); }
+.poster-themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.poster-theme { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font-size: 12px; color: var(--poster-secondary); }
+.poster-theme .swatch { position: relative; width: 100%; aspect-ratio: 4 / 5; border-radius: 8px; box-shadow: 0 0 0 1px var(--border); display: grid; place-items: center; transition: box-shadow .15s ease; }
+.poster-theme .swatch i { position: absolute; left: 8px; top: 8px; width: 12px; height: 3px; border-radius: 2px; }
+.poster-theme .swatch b { font: 600 16px "Songti SC", serif; }
+.poster-theme[aria-pressed="true"] .swatch { box-shadow: 0 0 0 2px var(--poster-text); }
+.poster-theme[aria-pressed="true"] { color: var(--poster-text); font-weight: 600; }
+.poster-theme span:last-child { white-space: nowrap; font-size: 11.5px; }
+.poster-fonts { display: flex; flex-direction: column; gap: 2px; }
+.poster-font { display: flex; align-items: center; justify-content: space-between; height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: none; color: var(--poster-secondary); font-size: 13px; text-align: left; }
+.poster-font:hover, .poster-font[aria-pressed="true"] { background: var(--poster-soft); }
+.poster-font[aria-pressed="true"] { color: var(--poster-text); font-weight: 600; }
+.pf-note, .poster-font-help { color: var(--poster-muted); }
+.pf-note { font-size: 11px; font-weight: 400; }
+.poster-font-help { margin: 0; font-size: 12px; }
+@media (max-width: 600px) {
+  .poster-body { padding-inline: 16px; }
+  .poster-layout { grid-template: auto / minmax(0, 1fr); overflow-y: auto; }
+  .poster-side { overflow: visible; }
+  .poster-pv { height: min(48dvh, 420px); min-height: 180px; }
+  .poster-foot { flex-wrap: wrap; }
+  .poster-notice:not(:empty) { flex-basis: 100%; text-align: end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .poster-wait .app-icon, .poster-busy .app-icon { animation: none; }
+}

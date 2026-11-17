@@ -34,6 +34,7 @@ const ICONS = [
   ['hash', 'Hash'],
   ['highlighter', 'Highlighter'],
   ['history', 'History'],
+  ['image', 'Image'],
   ['languages', 'Languages'],
   ['link', 'Link'],
   ['loader-circle', 'LoaderCircle'],

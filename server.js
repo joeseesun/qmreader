@@ -258,6 +258,12 @@ const originalFetchRateLimit = createRateLimiter({
   max: 20,
   message: '原文抓取过于频繁，请稍后再试',
 });
+const posterTranslationRateLimit = createRateLimiter({
+  windowMs: MINUTE_MS,
+  max: 10,
+  message: '海报翻译过于频繁，请稍后再试',
+  key: req => `poster-translation:${req.user.id}`,
+});
 const podscribeReadRateLimit = createRateLimiter({
   windowMs: 60 * 1000,
   max: 30,
@@ -3725,6 +3731,17 @@ app.post('/api/entry/:id/translation', requireLogin, async (req, res) => {
   } catch (e) {
     console.warn(`translation failed for ${entry.id}:`, e.message || e);
     sendError(res, e, 'translation failed');
+  }
+});
+
+app.post('/api/poster-translation', requireLogin, posterTranslationRateLimit, async (req, res) => {
+  const quote = typeof req.body?.quote === 'string' ? req.body.quote.trim().slice(0, 1800) : '';
+  const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 300) : '';
+  if (!quote && !title) return res.status(400).json({ error: '没有需要翻译的摘句或标题' });
+  try {
+    res.json(await deepseek.translatePosterText({ quote, title }, requestAiConfig(req)));
+  } catch (e) {
+    sendError(res, e, '海报翻译失败');
   }
 });
 
